@@ -1,8 +1,12 @@
 """Sarvam Doc AI adapter for the optional prescription photo path.
 
 The document model identifies names; the locked formulary remains authoritative
-for dose metadata and safety fields. Unknown drugs are omitted rather than made
-activatable from model output.
+for the numeric dose (never turn a misread "10mg" into ground truth). Schedule
+and food-rule *are* read off the model's output, the same way the paste path
+reads them off the source line — dropping them was a bug, not a safety choice.
+When the model's dose text disagrees with the formulary default, we flag it
+with low confidence instead of silently overwriting or silently ignoring it,
+so the human-confirm step actually has something to catch.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ import httpx
 from ..config import SARVAM_API_BASE, SARVAM_API_KEY
 from ..errors import ApiError
 from ..models.schemas import Medication
+from .extract import _schedule_from_line
 from .fixtures import load_formulary
 
 EXTRACT_URL = f"{SARVAM_API_BASE}/doc-ai/v1/job/extract"
@@ -25,24 +30,29 @@ RESULTS_URL = f"{SARVAM_API_BASE}/doc-ai/v1/job/{{job_id}}/results"
 POLL_INTERVAL_SECONDS = 1.5
 POLL_TIMEOUT_SECONDS = 45
 
+# Sarvam Doc AI's schema validator (distinct from plain JSON Schema) rejects a
+# top-level "required" key and demands a non-empty "description" on every
+# property — undocumented, found by trial and error against the live API.
 MEDICATION_SCHEMA = {
     "type": "object",
     "properties": {
         "medications": {
             "type": "array",
+            "description": "Every medication listed in the prescription or discharge note",
             "items": {
                 "type": "object",
+                "description": "One medication entry",
                 "properties": {
-                    "name": {"type": "string"},
-                    "dose": {"type": "string"},
-                    "schedule": {"type": "string"},
+                    "name": {"type": "string", "description": "Drug name as written, with strength if present"},
+                    "dose": {"type": "string", "description": "Dose amount and unit as written, e.g. '10 mg'"},
+                    "schedule": {"type": "string", "description": "Timing/frequency/food instructions as written"},
                 },
-                "required": ["name"],
             },
         }
     },
-    "required": ["medications"],
 }
+
+DOSE_NUMBER_RE = re.compile(r"(\d+(?:\.\d+)?)")
 
 
 def _normalize(value: str) -> str:
@@ -128,14 +138,47 @@ async def extract_document(
     medications: list[Medication] = []
     for raw in _pluck_medications(result):
         raw_name = str(raw.get("name") or "").strip()
+        raw_dose = str(raw.get("dose") or "").strip()
+        raw_schedule = str(raw.get("schedule") or "").strip()
         fixture = _match_formulary(raw_name)
         if not fixture:
             continue
+
+        # Timing/food are safe to read off the model's output — worst case a
+        # hint word is missed and the formulary default stands, same trust
+        # level as the paste path reading a source line.
         data = dict(fixture)
+        hint_text = f"{raw_dose} {raw_schedule}".strip()
+        if hint_text:
+            data = _schedule_from_line(hint_text, data)
+
+        # The numeric dose stays locked to the formulary either way — we never
+        # let a model reading turn "10mg" into ground truth. But if the photo
+        # disagrees with that default, silently keeping the formulary's number
+        # hides the disagreement from the reviewer entirely. Drop confidence
+        # instead so the med card's existing low-confidence border catches it.
+        mismatch = _dose_mismatches(raw_dose, fixture["dose"])
+        confidence = 0.5 if mismatch else min(float(fixture.get("confidence", 0.8)), 0.9)
+
         data.update(
             name_raw=raw_name or fixture["name_raw"],
             source="ocr",
-            confidence=min(float(fixture.get("confidence", 0.8)), 0.9),
+            confidence=confidence,
         )
+        if mismatch:
+            note = f"photo reads {raw_dose} — formulary default {fixture['dose']}{fixture['unit']} shown, please verify"
+            data["schedule_text"] = f"{data.get('schedule_text', '')} ({note})".strip()
         medications.append(Medication(**data))
     return medications
+
+
+def _dose_mismatches(raw_dose: str, fixture_dose: float) -> bool:
+    """True when the OCR'd dose text names a different number than the formulary default."""
+    match = DOSE_NUMBER_RE.search(raw_dose)
+    if not match:
+        return False
+    try:
+        photo_dose = float(match.group(1))
+    except ValueError:
+        return False
+    return abs(photo_dose - float(fixture_dose)) > 1e-9
