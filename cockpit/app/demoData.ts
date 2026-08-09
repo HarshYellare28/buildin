@@ -22,6 +22,7 @@ export function initialState(): CockpitState {
     planStatus: "draft",
     reviewed: false,
     meds: [],
+    callMedicationId: null,
     doseId: null,
     doseStatus: "idle",
     outboundAttemptId: null,

@@ -93,6 +93,13 @@ def test_webhook_completes_primary_path_and_creates_packet(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["processed"] is True
+    call = client.get(f"/sarvam/outbound/{dose['dose_id']}").json()
+    assert call["status"] == "completed"
+    assert call["call_status"] == "connected"
+    assert call["transcript"] == [
+        {"role": "agent", "text": "Aapne Amlodipine li?"},
+        {"role": "patient", "text": "Haan, le li. Lekin pet mein jalan ho rahi hai."},
+    ]
     packet = client.get("/packets/latest", params={"plan_id": plan_id}).json()
     assert packet["status"] == "taken"
     assert packet["exception"] == {

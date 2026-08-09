@@ -1,4 +1,4 @@
-import { CarePacket, LedgerEvent, Medication, TranscriptLine } from "./types";
+import { CarePacket, LedgerEvent, Medication, OutboundCall, TranscriptLine } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -56,7 +56,7 @@ export async function saveAndActivatePlan(planId: string, medications: Medicatio
   await request(`/plans/${planId}/activate`, { method: "POST" });
 }
 
-export async function triggerDose(planId: string): Promise<{
+export async function triggerDose(planId: string, medicationId: string): Promise<{
   dose_id: string;
   status: "calling";
   medication: Medication;
@@ -64,7 +64,11 @@ export async function triggerDose(planId: string): Promise<{
   return request("/doses/trigger", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ plan_id: planId, simulate_time: "evening" }),
+    body: JSON.stringify({
+      plan_id: planId,
+      medication_id: medicationId,
+      simulate_time: "now",
+    }),
   });
 }
 
@@ -92,6 +96,10 @@ export async function startOutboundDoseCall(doseId: string): Promise<{
   attempt_id: string;
 }> {
   return request(`/sarvam/outbound/${doseId}`, { method: "POST" });
+}
+
+export async function getOutboundDoseCall(doseId: string): Promise<OutboundCall> {
+  return request(`/sarvam/outbound/${doseId}`);
 }
 
 export async function runDisasterFallback(sessionId: string): Promise<{

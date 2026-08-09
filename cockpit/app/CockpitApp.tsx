@@ -5,6 +5,7 @@ import {
   extractPlan,
   getEvents,
   getLatestPacket,
+  getOutboundDoseCall,
   resetWorld,
   runDisasterFallback,
   saveAndActivatePlan,
@@ -132,6 +133,10 @@ export default function CockpitApp() {
         planStatus: result.status,
         reviewed: false,
         meds: result.medications,
+        callMedicationId:
+          result.medications.find((medication) => medication.id === "med_amlodipine")?.id ??
+          result.medications[0]?.id ??
+          null,
         events,
         error: null,
         activeTab: "meds",
@@ -169,10 +174,10 @@ export default function CockpitApp() {
   };
 
   const startCall = async () => {
-    if (!state.planId || state.planStatus !== "active") return;
+    if (!state.planId || !state.callMedicationId || state.planStatus !== "active") return;
     setState((current) => ({ ...current, busy: true, error: null }));
     try {
-      const dose = await triggerDose(state.planId);
+      const dose = await triggerDose(state.planId, state.callMedicationId);
       const voice = DEV_MODE
         ? await startVoiceSession(dose.dose_id, dose.medication)
         : null;
@@ -197,7 +202,10 @@ export default function CockpitApp() {
     if (!state.planId) return;
     setState((current) => ({ ...current, busy: true, error: null }));
     try {
-      const events = await getEvents(state.planId);
+      const [events, call] = await Promise.all([
+        getEvents(state.planId),
+        state.doseId ? getOutboundDoseCall(state.doseId) : Promise.resolve(null),
+      ]);
       let packet: CarePacket | null = null;
       try {
         packet = await getLatestPacket(state.planId);
@@ -212,7 +220,8 @@ export default function CockpitApp() {
         busy: false,
         events,
         packet,
-        doseStatus: completed ? "completed" : current.doseStatus,
+        doseStatus: completed ? "completed" : call?.status === "failed" ? "failed" : current.doseStatus,
+        transcript: call?.transcript ?? current.transcript,
         activeTab: packet ? "packet" : current.activeTab,
       }));
     } catch (error) {
@@ -280,10 +289,14 @@ export default function CockpitApp() {
   };
 
   const doseStatusText = {
-    idle: "Activate the plan, then start the evening dose call.",
+    idle: "Choose any medication and call whenever a check-in is needed.",
     calling: "Voice session started for Lakshmi. Waiting for the phone-agent outcome.",
     completed: "Dose outcome recorded. The packet and ledger came from the backend.",
+    failed: "The last phone attempt did not complete. Check the number or try again.",
   }[state.doseStatus];
+  const selectedCallMedication = state.meds.find(
+    (medication) => medication.id === state.callMedicationId,
+  );
 
   return (
     <div className="cockpit-frame">
@@ -362,22 +375,57 @@ export default function CockpitApp() {
             <>
               <div className="card">
                 <div className="card-kicker">3 · Patient voice call</div>
-                <div className="card-title">Evening Amlodipine check-in</div>
+                <div className="card-title">
+                  {selectedCallMedication?.name_raw ?? "Medication"} check-in
+                </div>
                 <p className="card-body">{doseStatusText}</p>
+                <div className="field" style={{ marginTop: 8 }}>
+                  <label htmlFor="call-medication">Medication to discuss</label>
+                  <select
+                    id="call-medication"
+                    className="input"
+                    value={state.callMedicationId ?? ""}
+                    disabled={state.busy || state.doseStatus === "calling"}
+                    onChange={(event) =>
+                      setState((current) => ({
+                        ...current,
+                        callMedicationId: event.target.value,
+                      }))
+                    }
+                  >
+                    {state.meds.map((medication) => (
+                      <option key={medication.id} value={medication.id}>
+                        {medication.name_raw} · {medication.schedule_text}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 {state.outboundAttemptId && (
                   <p className="note" style={{ margin: 0 }}>
                     Sarvam attempt: {state.outboundAttemptId}
                   </p>
                 )}
-                <button type="button" className="btn btn-primary btn-block" disabled={state.busy || state.planStatus !== "active" || state.doseStatus === "calling"} onClick={startCall}>
-                  {state.busy ? "Starting…" : "Call Lakshmi"}
+                <button type="button" className="btn btn-primary btn-block" disabled={state.busy || !state.callMedicationId || state.planStatus !== "active" || state.doseStatus === "calling"} onClick={startCall}>
+                  {state.busy ? "Starting…" : "Call Lakshmi now"}
                 </button>
                 {state.doseStatus === "calling" && (
-                  <button type="button" className="btn btn-secondary btn-block" disabled={state.busy} onClick={refreshOutcome}>Refresh call outcome</button>
+                  <button type="button" className="btn btn-secondary btn-block" disabled={state.busy} onClick={refreshOutcome}>Check outcome & transcript</button>
                 )}
                 <p className="note" style={{ marginTop: 10 }}>
-                  Lakshmi uses only her phone. There is deliberately no patient web screen.
+                  The caregiver can call at any time. Lakshmi still uses only her phone.
                 </p>
+                {state.transcript.length > 0 && (
+                  <div className="call-transcript" aria-label="Full call transcript">
+                    <div className="hr" />
+                    <div className="card-kicker">Full call transcript</div>
+                    {state.transcript.map((line, index) => (
+                      <div key={`${line.role}-${index}`} className={`transcript-line ${line.role}`}>
+                        <span>{line.role === "patient" ? "Lakshmi" : line.role === "agent" ? "DAWA agent" : "Call"}</span>
+                        <p>{line.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {DEV_MODE && state.doseStatus === "calling" && (
                 <div style={{ marginTop: 18, border: "1px dashed #b3491f", borderRadius: 4, padding: 14 }}>

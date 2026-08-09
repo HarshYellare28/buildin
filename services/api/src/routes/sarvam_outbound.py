@@ -49,8 +49,11 @@ def _metadata(payload: dict) -> dict:
 
 
 def _final_variables(payload: dict) -> dict:
-    value = _first_key(payload, {"final_agent_variables", "output_variables", "agent_variables"})
-    return value if isinstance(value, dict) else {}
+    for name in ("final_agent_variables", "output_variables", "agent_variables"):
+        value = _first_key(payload, {name})
+        if isinstance(value, dict):
+            return value
+    return {}
 
 
 def _line_text(item: dict) -> str:
@@ -61,25 +64,53 @@ def _line_text(item: dict) -> str:
     return ""
 
 
-def _patient_text(payload: dict, variables: dict) -> str:
+def _normalized_role(value: Any) -> str:
+    role = str(value or "").strip().lower()
+    if role in _PATIENT_ROLES:
+        return "patient"
+    if role in {"agent", "assistant", "bot", "ai"}:
+        return "agent"
+    return "unknown"
+
+
+def _normalized_transcript(payload: dict) -> list[dict[str, str]]:
     transcript = _first_key(payload, {"transcript", "conversation", "messages", "turns"})
-    parts: list[str] = []
+    lines: list[dict[str, str]] = []
     if isinstance(transcript, list):
         for item in transcript:
             if not isinstance(item, dict):
                 continue
-            role = str(item.get("role") or item.get("speaker") or item.get("participant") or "").lower()
-            if role in _PATIENT_ROLES:
-                text = _line_text(item)
-                if text:
-                    parts.append(text)
+            text = _line_text(item)
+            if text:
+                lines.append(
+                    {
+                        "role": _normalized_role(
+                            item.get("role") or item.get("speaker") or item.get("participant")
+                        ),
+                        "text": text,
+                    }
+                )
     elif isinstance(transcript, str):
-        labelled = []
         for line in transcript.splitlines():
-            match = re.match(r"\s*(patient|user|customer|human|callee)\s*:\s*(.+)", line, re.I)
+            match = re.match(
+                r"\s*(agent|assistant|bot|ai|patient|user|customer|human|callee)\s*:\s*(.+)",
+                line,
+                re.I,
+            )
             if match:
-                labelled.append(match.group(2).strip())
-        parts.extend(labelled or [transcript.strip()])
+                lines.append(
+                    {"role": _normalized_role(match.group(1)), "text": match.group(2).strip()}
+                )
+        if not lines and transcript.strip():
+            lines.append({"role": "unknown", "text": transcript.strip()})
+    return lines
+
+
+def _patient_text(payload: dict, variables: dict) -> str:
+    transcript = _normalized_transcript(payload)
+    parts = [line["text"] for line in transcript if line["role"] == "patient"]
+    if not parts and transcript and all(line["role"] == "unknown" for line in transcript):
+        parts = [line["text"] for line in transcript]
 
     if not parts:
         summary = next(
@@ -151,6 +182,19 @@ def start_outbound(dose_id: str) -> dict:
     return {"dose_id": dose_id, "status": "calling", "attempt_id": result["attempt_id"]}
 
 
+@router.get("/outbound/{dose_id}")
+def outbound_status(dose_id: str) -> dict:
+    dose = plans.get_dose(dose_id)
+    return {
+        "dose_id": dose_id,
+        "status": dose["status"],
+        "attempt_id": dose.get("sarvam_attempt_id"),
+        "call_status": dose.get("sarvam_call_status"),
+        "failure_reason": dose.get("sarvam_failure"),
+        "transcript": dose.get("sarvam_transcript", []),
+    }
+
+
 @router.post("/webhook")
 async def receive_webhook(request: Request, token: str = Query(default="")) -> dict:
     if not SARVAM_WEBHOOK_TOKEN or not secrets.compare_digest(token, SARVAM_WEBHOOK_TOKEN):
@@ -179,6 +223,10 @@ async def receive_webhook(request: Request, token: str = Query(default="")) -> d
         return {"ok": True, "duplicate": True, "dose_id": dose_id}
 
     status = str(_first_key(payload, {"status", "call_status"}) or "").lower()
+    transcript = _normalized_transcript(payload)
+    dose["sarvam_call_status"] = status or "received"
+    dose["sarvam_transcript"] = transcript
+    plans.save_dose(dose)
     if status in _FAILED_STATUSES:
         dose["status"] = "failed"
         dose["sarvam_failure"] = str(_first_key(payload, {"failure_reason", "reason"}) or status)
@@ -199,7 +247,6 @@ async def receive_webhook(request: Request, token: str = Query(default="")) -> d
         plans.save_dose(dose)
 
     if result.adherence not in {"taken", "missed", "partial"}:
-        dose["sarvam_webhook_status"] = status or "received"
         dose["sarvam_outcome_error"] = "No usable adherence outcome in webhook"
         plans.save_dose(dose)
         return {

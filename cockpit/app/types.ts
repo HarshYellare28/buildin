@@ -1,6 +1,6 @@
 export type Tab = "ingest" | "meds" | "dose" | "packet" | "ledger";
 export type IngestMode = "paste" | "photo";
-export type DoseStatus = "idle" | "calling" | "completed";
+export type DoseStatus = "idle" | "calling" | "completed" | "failed";
 export type PlanStatus = "draft" | "active";
 export type Criticality = "low" | "med" | "high";
 export type FoodRule = "with_food" | "none" | string;
@@ -22,8 +22,17 @@ export interface Medication {
 }
 
 export interface TranscriptLine {
-  role: "agent" | "patient";
+  role: "agent" | "patient" | "unknown";
   text: string;
+}
+
+export interface OutboundCall {
+  dose_id: string;
+  status: "calling" | "completed" | "failed";
+  attempt_id: string | null;
+  call_status: string | null;
+  failure_reason: string | null;
+  transcript: TranscriptLine[];
 }
 
 export type LedgerEventType =
@@ -72,6 +81,7 @@ export interface CockpitState {
   planStatus: PlanStatus;
   reviewed: boolean;
   meds: Medication[];
+  callMedicationId: string | null;
   doseId: string | null;
   doseStatus: DoseStatus;
   outboundAttemptId: string | null;
