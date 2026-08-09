@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" role="img" aria-label="DAWA">
+  <title>DAWA</title>
+  <!-- icon: pill + leaf + care arc -->
+  <g transform="translate(160 118)">
+    <path d="M-78 18c-8-36 18-70 54-70 22 0 40 10 52 26" fill="none" stroke="#E07A5F" stroke-width="14" stroke-linecap="round"/>
+    <path d="M78 -18c8 36-18 70-54 70-22 0-40-10-52-26" fill="none" stroke="#E07A5F" stroke-width="14" stroke-linecap="round"/>
+    <!-- capsule -->
+    <g transform="rotate(-28)">
+      <rect x="-70" y="-32" width="140" height="64" rx="32" fill="#2A9D8F"/>
+      <path d="M0-32v64" stroke="#fff" stroke-width="3" opacity="0.35"/>
+      <path d="M8-8c18-6 34 2 40 18 2 6-2 10-8 8-16-6-28-4-36-10-6-4-4-12 4-16z" fill="#E07A5F"/>
+    </g>
+  </g>
+  <!-- exact wordmark -->
+  <text x="160" y="250" text-anchor="middle" font-family="DM Sans, Montserrat, Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="6" fill="#1A1A1A">DAWA</text>
+  <path d="M78 250h18" stroke="#2A9D8F" stroke-width="5" stroke-linecap="round"/>
+  <path d="M228 232v18" stroke="#E07A5F" stroke-width="5" stroke-linecap="round"/>
+</svg>
