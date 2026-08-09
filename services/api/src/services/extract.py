@@ -18,18 +18,16 @@ returned is a draft a human still has to confirm before activate.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
-from ..config import (
-    EXTRACT_MODE,
-    SARVAM_API_BASE,
-    SARVAM_API_KEY,
-    SARVAM_MODEL,
-    SARVAM_TIMEOUT_SECONDS,
-)
+from ..config import EXTRACT_MODE
 from ..models.schemas import Medication
+from . import sarvam
 from .fixtures import formulary_by_name, load_formulary
+
+logger = logging.getLogger(__name__)
 
 # Transliterations / brand-ish spellings seen in Indian discharge notes.
 ALIASES: dict[str, str] = {
@@ -55,9 +53,25 @@ ALIASES: dict[str, str] = {
 }
 
 MORNING_HINTS = ("subah", "morning", "सुबह", "od morning", "bf", "breakfast")
-NIGHT_HINTS = ("raat", "night", "रात", "hs", "bedtime", "evening", "sham")
-FOOD_HINTS = ("khane ke saath", "with food", "after food", "khana", "pc", "भोजन", "खाने")
+NIGHT_HINTS = ("raat", "night", "रात", "hs", "bedtime", "evening", "sham", "shaam")
+FOOD_HINTS = (
+    "khane ke saath", "with food", "after food", "khana", "pc", "भोजन", "खाने",
+    # "... ke baad" is how discharge notes actually say after-food.
+    "khane ke baad", "khana khane ke baad", "breakfast ke baad", "nashte ke baad",
+    "bhojan ke baad", "after meal", "after meals", "after breakfast", "post food",
+)
+# Checked before FOOD_HINTS and wins: "khana khane se pehle" contains the token
+# "khana", so without this it would be filed as with_food — the opposite
+# instruction. Metformin before vs with food is a real difference.
+BEFORE_FOOD_HINTS = (
+    "khane se pehle", "khana khane se pehle", "bhojan se pehle", "nashte se pehle",
+    "before food", "before meal", "before meals", "before breakfast",
+    "khali pet", "empty stomach", "ac",
+)
 SOS_HINTS = ("sos", "if needed", "bukhar", "prn", "जरूरत")
+
+# Any signal that a text span actually carries schedule information.
+_SCHEDULE_HINTS = MORNING_HINTS + NIGHT_HINTS + FOOD_HINTS + BEFORE_FOOD_HINTS + SOS_HINTS
 
 MORNING_TIME = "08:00"
 NIGHT_TIME = "21:00"
@@ -66,16 +80,30 @@ NIGHT_TIME = "21:00"
 def extract_medications(text: str, source: str = "paste") -> list[Medication]:
     """Best available extraction. Never raises on LLM failure."""
     hits: list[dict] = []
+    path = ""
 
     if EXTRACT_MODE != "llm":
         hits = _extract_via_formulary(text)
+        path = "formulary"
 
-    if not hits and EXTRACT_MODE != "deterministic" and SARVAM_API_KEY:
-        hits = _extract_via_sarvam(text) or []
+    if not hits and EXTRACT_MODE != "deterministic":
+        if sarvam.is_configured():
+            hits = _extract_via_sarvam(text) or []
+            path = "sarvam"
+        else:
+            logger.warning("extract: SARVAM_API_KEY empty, skipping LLM path")
 
     if not hits and EXTRACT_MODE == "llm":
         hits = _extract_via_formulary(text)
+        path = "formulary(backstop)"
 
+    logger.info(
+        "extract mode=%s path=%s -> %d med(s): %s",
+        EXTRACT_MODE,
+        path or "none",
+        len(hits),
+        ", ".join(h["name_normalized"] for h in hits) or "-",
+    )
     return [_to_medication(item, source) for item in hits]
 
 
@@ -84,20 +112,24 @@ def extract_medications(text: str, source: str = "paste") -> list[Medication]:
 
 def _extract_via_formulary(text: str) -> list[dict]:
     """Scan the text for known formulary drugs and read their schedule off the line."""
-    lowered = text.lower()
-    hits: list[tuple[int, dict]] = []
-    seen: set[str] = set()
+    positions = _drug_positions(text)
+    return [
+        {"name_normalized": name, "line": _segment_at(text, idx, positions)}
+        for name, idx in sorted(positions.items(), key=lambda kv: kv[1])
+    ]
 
+
+def _drug_positions(text: str) -> dict[str, int]:
+    """Earliest index of each formulary drug, under any alias we know."""
+    lowered = text.lower()
+    positions: dict[str, int] = {}
     for alias, normalized in ALIASES.items():
         idx = lowered.find(alias.lower())
-        if idx == -1 or normalized in seen:
+        if idx == -1:
             continue
-        seen.add(normalized)
-        line = _line_at(text, idx)
-        hits.append((idx, {"name_normalized": normalized, "line": line}))
-
-    hits.sort(key=lambda pair: pair[0])
-    return [item for _, item in hits]
+        if normalized not in positions or idx < positions[normalized]:
+            positions[normalized] = idx
+    return positions
 
 
 def _line_at(text: str, index: int) -> str:
@@ -106,6 +138,32 @@ def _line_at(text: str, index: int) -> str:
     if end == -1:
         end = len(text)
     return text[start:end]
+
+
+def _segment_at(text: str, index: int, positions: dict[str, int]) -> str:
+    """This drug's own span of its line, not the whole line.
+
+    A note written as prose puts several drugs on one line — "amlodipine 5mg
+    morning mein continue karna hai aur metformin 500mg morning evening lena
+    hai". Handing that whole line to _schedule_from_line gives *both* drugs both
+    schedules, so amlodipine silently picks up a 21:00 dose the note never
+    ordered. The span runs from this drug's name to the next drug's name.
+
+    Falls back to the full line when the span carries no schedule word at all,
+    which is what happens when the timing leads instead of trails ("Raat ko:
+    Amlodipine"). A widened span is only ever as wrong as the old behaviour.
+    """
+    line_start = text.rfind("\n", 0, index) + 1
+    line_end = text.find("\n", index)
+    if line_end == -1:
+        line_end = len(text)
+
+    following = [p for p in positions.values() if index < p < line_end]
+    segment = text[index : min(following) if following else line_end]
+
+    if not _has_hint(segment.lower(), _SCHEDULE_HINTS):
+        return text[line_start:line_end]
+    return segment
 
 
 def _has_hint(low: str, hints: tuple[str, ...]) -> bool:
@@ -132,10 +190,18 @@ def _schedule_from_line(line: str, base: dict) -> dict:
     if times or is_sos:
         out["times"] = times
         out["schedule_text"] = _schedule_text(times, is_sos)
-    if _has_hint(low, FOOD_HINTS):
-        out["food_rule"] = "with_food"
-        if out["schedule_text"] and "food" not in out["schedule_text"].lower():
-            out["schedule_text"] = f"{out['schedule_text']} with food"
+
+    # Order matters: "khana khane se pehle" contains the with-food token "khana".
+    if _has_hint(low, BEFORE_FOOD_HINTS):
+        food_rule, suffix = "before_food", "before food"
+    elif _has_hint(low, FOOD_HINTS):
+        food_rule, suffix = "with_food", "with food"
+    else:
+        return out
+
+    out["food_rule"] = food_rule
+    if out["schedule_text"] and "food" not in out["schedule_text"].lower():
+        out["schedule_text"] = f"{out['schedule_text']} {suffix}"
     return out
 
 
@@ -162,68 +228,104 @@ def _extract_via_sarvam(text: str) -> list[dict] | None:
         "The note mixes English and Hindi (romanised).\n"
         f"Only use these normalized drug names: {allowed}. "
         "Never invent a drug that is not in that list. Do not guess dosing.\n"
-        'Reply with JSON only: {"medications": [{"name_normalized": str}]}\n\n'
+        "For each drug also copy back `source_line`: the single line of the note "
+        "it appears on, verbatim, character for character. Do not paraphrase it.\n"
+        'Reply with JSON only: '
+        '{"medications": [{"name_normalized": str, "source_line": str}]}\n\n'
         f"NOTE:\n{text}"
     )
     try:
-        import httpx
-
-        response = httpx.post(
-            f"{SARVAM_API_BASE}/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {SARVAM_API_KEY}",
-                "api-subscription-key": SARVAM_API_KEY,
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": SARVAM_MODEL,
-                "temperature": 0,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You extract medication names. You output JSON only.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=SARVAM_TIMEOUT_SECONDS,
+        content = sarvam.chat(
+            [
+                {
+                    "role": "system",
+                    "content": "You extract medication names. You output JSON only.",
+                },
+                {"role": "user", "content": prompt},
+            ]
         )
-        response.raise_for_status()
-        message = response.json()["choices"][0]["message"]
-        # Reasoning models sometimes leave `content` null and put the answer in
-        # `reasoning_content`.
-        content = message.get("content") or message.get("reasoning_content") or ""
         parsed = _parse_json_block(content)
         items = parsed.get("medications") if isinstance(parsed, dict) else None
         if not items:
+            logger.warning("extract: sarvam returned no medications")
             return None
-    except Exception:  # network, auth, shape drift — fall back silently
+    except sarvam.SarvamError as exc:
+        logger.warning("extract: sarvam unavailable, falling back: %s", exc)
+        return None
+    except Exception as exc:  # unparseable JSON / shape drift
+        logger.warning("extract: sarvam output unusable, falling back: %s", exc)
         return None
 
     known = formulary_by_name()
-    cleaned: list[dict] = []
+    accepted: list[tuple[str, str | None]] = []
     for item in items:
         name = item.get("name_normalized") if isinstance(item, dict) else item
         name = str(name or "").strip().lower()
         name = ALIASES.get(name, name)
-        if name not in known or any(c["name_normalized"] == name for c in cleaned):
+        if name not in known or any(n == name for n, _ in accepted):
             continue  # outside the locked formulary -> dropped, not invented
-        # Schedule still comes off the source line, exactly like the local path.
-        cleaned.append({"name_normalized": name, "line": _locate_line(text, name)})
+        quoted = item.get("source_line") if isinstance(item, dict) else None
+        accepted.append((name, quoted if isinstance(quoted, str) else None))
+
+    # Two passes, because pass 1 is ground truth and pass 2 must not contradict
+    # it. Schedule still comes off the source line, exactly like the local path.
+    # Our own alias lookup wins wherever it resolves; the model's quoted line is
+    # only a rescue for spellings ALIASES has never seen — the one case where
+    # _locate_line comes back empty.
+    resolved = {name: _locate_line(text, name) for name, _ in accepted}
+    claimed = {_collapse(line) for line in resolved.values() if line}
+
+    cleaned: list[dict] = []
+    for name, quoted in accepted:
+        line = resolved[name] or _match_quoted_line(text, quoted, claimed)
+        cleaned.append({"name_normalized": name, "line": line})
     return cleaned or None
 
 
-def _locate_line(text: str, normalized: str) -> str:
-    """Earliest line in the note mentioning this drug under any known alias."""
-    lowered = text.lower()
-    best = -1
-    for alias, canonical in ALIASES.items():
-        if canonical != normalized:
+def _collapse(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def _match_quoted_line(text: str, quoted: str | None, claimed: set[str]) -> str:
+    """Resolve the model's quoted line back to a real line of the note.
+
+    Returns "" unless the quote matches a line that is actually present, so a
+    hallucinated or paraphrased line can never reach _schedule_from_line and
+    move a dose time. `claimed` holds lines already resolved by alias lookup;
+    a quote landing on one of those is a misattribution and is dropped.
+
+    Limit worth knowing: when a note writes *every* drug in a spelling ALIASES
+    does not know, `claimed` is empty and nothing here can tell which unknown
+    name owns which line. A misattributed schedule is still possible then. It
+    lands in a draft plan that a human confirms before activate, which is the
+    real backstop — this only narrows the window.
+    """
+    want = _collapse(quoted or "")
+    if len(want) < 4:
+        return ""
+
+    for line in text.splitlines():
+        have = _collapse(line)
+        if len(have) < 4 or not (want in have or have in want):
             continue
-        idx = lowered.find(alias.lower())
-        if idx != -1 and (best == -1 or idx < best):
-            best = idx
-    return _line_at(text, best) if best != -1 else ""
+        # Containment, not equality: `claimed` holds per-drug *segments*, which
+        # are substrings of their line once a list marker like "2) Tab. " is
+        # stripped. Comparing for equality would silently never match.
+        if any(owned in have or have in owned for owned in claimed):
+            return ""  # another drug already owns this line by alias — drop it
+        return line
+    return ""
+
+
+def _locate_line(text: str, normalized: str) -> str:
+    """This drug's own span of the note, under any alias we know. "" if unknown.
+
+    Same segmentation as the deterministic path, so a prose note cannot give one
+    drug another's schedule just because Sarvam was the one that named it.
+    """
+    positions = _drug_positions(text)
+    idx = positions.get(normalized)
+    return _segment_at(text, idx, positions) if idx is not None else ""
 
 
 def _parse_json_block(content: str) -> Any:

@@ -33,9 +33,21 @@ Delete it any time; it is recreated on boot. CORS is open for any
 ./scripts/demo-reset.sh
 ./scripts/smoke-api.sh
 
-# unit + contract tests (no server needed)
+# unit + contract tests (no server needed, never hits the network)
 cd services/api && .venv/bin/python -m pytest -q
+
+# 50 Hinglish cases against a running API (real Sarvam calls, ~5 min)
+services/api/.venv/bin/python scripts/hinglish-suite.py
+services/api/.venv/bin/python scripts/hinglish-suite.py --only 17,40
+
+# is the Sarvam key actually live? chat + STT + TTS + extract
+services/api/.venv/bin/python scripts/verify-sarvam.py
 ```
+
+`hinglish-suite.py` reports `PASS` / `FAIL` / `GAP`, where GAP means the
+contract has no such field — currently: no `quantity` on `Medication`,
+`duration_days` comes from the formulary rather than the note, and
+`/doses/trigger` has no in-flight duplicate guard.
 
 ## Endpoints
 
@@ -76,29 +88,65 @@ Calling it twice on the same dose returns `409 DOSE_ALREADY_COMPLETED` — the
 ledger is append-only and a dose has exactly one outcome.
 
 `src/voice/turn.py` holds a deterministic keyword placeholder for
-`voice-turn`; replace it with the Sarvam loop. The route contract stays put.
+`voice-turn`. `src/voice/sarvam_client.py` is the Sarvam STT/LLM/TTS client to
+build the real loop on — see **Sarvam** below. The route contract stays put.
+
+## Sarvam
+
+All Sarvam traffic goes through `src/services/sarvam.py`. Endpoints, verified
+live:
+
+| Call | Endpoint | Model env var |
+| --- | --- | --- |
+| `chat()` | `POST /v1/chat/completions` | `SARVAM_MODEL` = `sarvam-105b-conversations` |
+| `speech_to_text()` | `POST /speech-to-text` (multipart) | `SARVAM_STT_MODEL` = `saarika:v2.5` |
+| `text_to_speech()` | `POST /text-to-speech` (base64 wav) | `SARVAM_TTS_MODEL` = `bulbul:v2` |
+
+`sarvam-m` is deprecated and returns 400. Every call logs model, elapsed ms and
+outcome at INFO, and failures raise `SarvamError` with the upstream body — a
+dead key and a never-entered code path used to look identical from outside.
+
+Check the key end to end before blaming the code:
+
+```bash
+services/api/.venv/bin/python scripts/verify-sarvam.py
+```
+
+For the voice loop, import the façade — it defaults language to
+`DEMO_PATIENT_LANG` and carries the policy-bound system prompt:
+
+```python
+from ..voice.sarvam_client import transcribe, speak, ask, SYSTEM_PROMPT, SarvamError
+```
 
 ## Extract
 
-Deterministic parse against `fixtures/formulary.json` first (~0.2s, exact on the
-demo fixture). Sarvam is called **only when that finds nothing** — off-fixture
-brand names like "Stamlo" or "Gluconorm". Control with `EXTRACT_MODE`:
+Sarvam first, deterministic formulary parse as backstop when it returns nothing.
+Control with `EXTRACT_MODE`:
 
 | Value | Behaviour |
 | --- | --- |
-| `auto` (default) | formulary parse, LLM only as rescue |
-| `deterministic` | never calls the LLM |
-| `llm` | LLM first, formulary parse as backstop |
+| `llm` (default) | Sarvam first (~6s), formulary parse as backstop |
+| `auto` | formulary parse first (~0.2s), LLM only as rescue |
+| `deterministic` | never calls the LLM (what the tests pin) |
+
+`auto` is faster but the parse matches the demo fixture outright, so a demo run
+never reaches Sarvam at all. `llm` is the default so the model is genuinely on
+the path; a dead key degrades to the same result the parse would have given.
 
 The LLM only answers **which drugs are in the note**. Dose, times, duration and
 criticality always come from the locked formulary plus the source line — never
 from the model. (A model asked for schedules read "7 din baad OPD review" as a
 7-day course and moved Amlodipine to 22:00; that class of drift can't happen
-now.) Both paths snap onto the formulary — the extractor never invents a drug
-outside it, and everything it returns is a **draft** until a human activates.
+now.) It is also asked to quote each drug's source line back verbatim; the quote
+is only used when our own alias table cannot find the drug, and is discarded
+unless it matches a line really present in the note. Both paths snap onto the
+formulary — the extractor never invents a drug outside it, and everything it
+returns is a **draft** until a human activates.
 
-Model is `sarvam-105b-conversations` (`SARVAM_MODEL`); `sarvam-m` is deprecated
-and returns 400.
+Schedules are read from each drug's **own span** of its line, not the whole
+line, so a prose note naming two drugs at once ("amlodipine 5mg morning ... aur
+metformin 500mg morning evening") does not give amlodipine an evening dose.
 
 ## Follow-up visit
 

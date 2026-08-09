@@ -6,6 +6,7 @@ Run:
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -14,9 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import db
-from .config import CORS_ORIGINS
+from .config import CORS_ORIGINS, EXTRACT_MODE, LOG_LEVEL
 from .errors import ApiError
 from .routes import demo, doses, events, health, packets, people, plans, policy
+from .services import sarvam
 from .services.seed import ensure_seeded
 
 
@@ -28,6 +30,18 @@ async def lifespan(_: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # uvicorn only configures its own loggers, so without this every log line
+    # from src/** is dropped and Sarvam failures stay invisible.
+    logging.basicConfig(
+        level=LOG_LEVEL,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger(__name__).info(
+        "DAWA API starting: extract_mode=%s sarvam_key=%s",
+        EXTRACT_MODE,
+        "set" if sarvam.is_configured() else "MISSING",
+    )
+
     app = FastAPI(title="DAWA API", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
