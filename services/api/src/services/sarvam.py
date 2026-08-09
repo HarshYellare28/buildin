@@ -1,8 +1,9 @@
 """One HTTP client for every Sarvam call the API makes.
 
-Three endpoints, all verified against api.sarvam.ai:
+Endpoints, all verified against api.sarvam.ai:
 
     chat()            POST /v1/chat/completions   sarvam-105b-conversations
+    doc_ai_extract()  POST /doc-ai/v1/job/extract (multipart, then polled)
     speech_to_text()  POST /speech-to-text        saarika:v2.5   (multipart)
     text_to_speech()  POST /text-to-speech        bulbul:v2      (base64 wav)
 
@@ -12,12 +13,15 @@ bare `return None`, so a dead key and a skipped code path looked identical from
 the outside. Failures raise SarvamError here; callers decide whether to fall
 back, and the log says which happened.
 
-Callers: services/extract.py (chat) and voice/sarvam_client.py (all three).
+Callers: services/extract.py (chat, doc_ai_extract). The live dose call runs on
+voice/sarvam_client.py, which has its own transport — speech_to_text() and
+text_to_speech() here remain for non-voice callers and the L0 verify scripts.
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import time
 
@@ -117,6 +121,77 @@ def chat(
     if not content.strip():
         raise SarvamError("chat: empty content and empty reasoning_content")
     return content
+
+
+DOC_AI_POLL_INTERVAL_SECONDS = 1.5
+DOC_AI_POLL_TIMEOUT_SECONDS = 45
+_DOC_AI_TERMINAL = {"completed", "partially_completed", "failed", "rejected"}
+
+
+def doc_ai_extract(
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+    schema: dict,
+    *,
+    language_code: str = "en-IN",
+    timeout: float = DOC_AI_POLL_TIMEOUT_SECONDS,
+) -> dict:
+    """Submit a page to Doc AI and poll until the job reaches a terminal status.
+
+    Doc AI is a job API, not a request/response one: the extract call returns a
+    job_id and the results endpoint 409s with RESULTS_NOT_READY until the job
+    finishes. Returns the completed result body.
+    """
+    _require_key("doc-ai")
+    if not file_bytes:
+        raise SarvamError("doc-ai: empty file")
+
+    submitted = _post(
+        "doc-ai/submit",
+        f"{SARVAM_API_BASE}/doc-ai/v1/job/extract",
+        headers=_headers(json_body=False),
+        files={"file": (filename, file_bytes, content_type or "application/octet-stream")},
+        data={
+            "schema": json.dumps(schema),
+            "language": language_code,
+            "output_format": "json",
+        },
+        timeout=SARVAM_TIMEOUT_SECONDS,
+    )
+    job_id = submitted.get("job_id")
+    if not job_id:
+        raise SarvamError(f"doc-ai: response had no job_id: {str(submitted)[:200]}")
+
+    return _doc_ai_poll(job_id, timeout)
+
+
+def _doc_ai_poll(job_id: str, timeout: float) -> dict:
+    url = f"{SARVAM_API_BASE}/doc-ai/v1/job/{job_id}/results"
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            response = httpx.get(url, headers=_headers(json_body=False), timeout=30)
+        except Exception as exc:
+            raise SarvamError(f"doc-ai/results: {exc}") from exc
+
+        # 409 is RESULTS_NOT_READY, not an error — the job is still running.
+        if response.status_code != 409:
+            if response.status_code >= 400:
+                raise SarvamError(
+                    f"doc-ai/results: HTTP {response.status_code} {response.text[:300]}"
+                )
+            body = response.json()
+            status = body.get("status")
+            if status in _DOC_AI_TERMINAL:
+                if status in ("failed", "rejected"):
+                    raise SarvamError(f"doc-ai: job {status}: {str(body)[:300]}")
+                logger.info("sarvam doc-ai job %s %s", job_id, status)
+                return body
+
+        if time.monotonic() > deadline:
+            raise SarvamError(f"doc-ai: job {job_id} unfinished after {timeout:.0f}s")
+        time.sleep(DOC_AI_POLL_INTERVAL_SECONDS)
 
 
 def speech_to_text(

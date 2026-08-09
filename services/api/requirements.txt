@@ -1,6 +1,3 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-pydantic>=2.7
-httpx>=0.27
-python-dotenv>=1.0
-pytest>=8.0
+# Deps are unified at the repo root so the API and the voice module cannot
+# drift onto different httpx/pydantic versions inside one process.
+-r ../../requirements.txt

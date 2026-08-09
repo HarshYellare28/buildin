@@ -56,6 +56,16 @@ def create_app() -> FastAPI:
     for module in (health, people, plans, doses, events, packets, policy, demo):
         app.include_router(module.router)
 
+    # Jyotir's live dose call. Everything it exposes sits under /voice/*, and it
+    # writes state only by calling POST /doses/{id}/complete back over HTTP —
+    # so a broken voice module cannot take the system of record down with it.
+    try:
+        from .voice.router import router as voice_router
+    except Exception:  # noqa: BLE001 — a missing voice dep must not stop the API
+        logging.getLogger(__name__).exception("voice router not mounted")
+    else:
+        app.include_router(voice_router)
+
     @app.exception_handler(ApiError)
     def handle_api_error(_: Request, exc: ApiError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content=exc.body())

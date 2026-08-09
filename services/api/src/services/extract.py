@@ -6,6 +6,10 @@ Two paths that both end in the same place:
 2. Sarvam LLM, used only when the deterministic parse finds nothing — it reads
    spellings and phrasings the alias table does not know.
 
+A photographed note (`extract_from_document`) is a separate path: Sarvam Doc AI
+returns medication rows and those rows are used directly. Whichever path ran,
+the drug itself always comes from fixtures/formulary.json.
+
 The LLM only ever answers *which drugs are in this note*. Dose, times, duration
 and criticality come from the locked formulary plus the source line, never from
 the model — a model that reads "7 din baad OPD review" as a 7-day course would
@@ -28,6 +32,10 @@ from . import sarvam
 from .fixtures import formulary_by_name, load_formulary
 
 logger = logging.getLogger(__name__)
+
+# Sarvam Doc AI only accepts these. Anything else is rejected before we spend a
+# round trip on it.
+SUPPORTED_DOCUMENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
 
 # Transliterations / brand-ish spellings seen in Indian discharge notes.
 ALIASES: dict[str, str] = {
@@ -352,3 +360,135 @@ def _to_medication(item: dict, source: str) -> Medication:
         base = _schedule_from_line(line, base)
 
     return Medication(**base)
+
+
+# --------------------------------------------------------------------- Doc AI
+
+
+def extract_from_document(file_bytes: bytes, filename: str, content_type: str) -> list[Medication]:
+    """Photo/PDF of a discharge note -> draft medications, via Sarvam Doc AI.
+
+    The rows Doc AI returns are used as they come back: its `name` picks the
+    formulary row, and its `schedule` string is read for times and food rule.
+    The note is never reconstructed and re-parsed — what the OCR reports is what
+    this path acts on.
+
+    Doc AI still cannot introduce a drug: `name` only ever selects a row from
+    fixtures/formulary.json, and dose, unit, route and criticality come from
+    that row. A name that matches nothing is dropped and logged.
+    """
+    result = sarvam.doc_ai_extract(file_bytes, filename, content_type, _DOC_SCHEMA)
+    rows = _pluck_medications(result)
+    if not rows:
+        logger.warning("extract(ocr): Doc AI returned no medication rows")
+        return []
+
+    known = formulary_by_name()
+    medications: list[Medication] = []
+    seen: set[str] = set()
+    dropped: list[str] = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_name = str(row.get("name") or "").strip()
+        normalized = _normalize_drug_name(raw_name)
+        if normalized is None:
+            if raw_name:
+                dropped.append(raw_name)
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+
+        base = dict(known[normalized])
+        base["source"] = "ocr"
+        # Same reader the paste path uses, pointed at Doc AI's own schedule
+        # string instead of a line of the note.
+        schedule = str(row.get("schedule") or "").strip()
+        if schedule:
+            base = _schedule_from_line(schedule, base)
+        medications.append(Medication(**base))
+
+    logger.info(
+        "extract(ocr): %d row(s) -> %d med(s): %s%s",
+        len(rows),
+        len(medications),
+        ", ".join(m.name_normalized for m in medications) or "-",
+        f" | not in formulary, dropped: {', '.join(dropped)}" if dropped else "",
+    )
+    return medications
+
+
+def _normalize_drug_name(raw_name: str) -> str | None:
+    """Doc AI's drug name -> a formulary key, or None if it names nothing we stock.
+
+    Doc AI returns the name as written ("Tab. Amlodipine 5 mg"), so an exact
+    lookup misses. Alias substrings are matched longest-first: "amlodipine"
+    must win over a shorter alias that happens to be contained in it.
+    """
+    low = (raw_name or "").lower()
+    if not low:
+        return None
+    known = formulary_by_name()
+    for alias in sorted(ALIASES, key=len, reverse=True):
+        if alias.lower() in low:
+            normalized = ALIASES[alias]
+            if normalized in known:
+                return normalized
+    return None
+
+
+_DOC_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "medications": {
+            "type": "array",
+            "description": "Every medication listed in the discharge/prescription document",
+            "items": {
+                "type": "object",
+                "description": "One medication entry",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Drug name exactly as written, with strength if present",
+                    },
+                    "dose": {
+                        "type": "string",
+                        "description": "Dose amount and unit, e.g. '5 mg'",
+                    },
+                    "schedule": {
+                        "type": "string",
+                        "description": (
+                            "When and how to take it, copied as written — e.g. "
+                            "'raat ko', 'subah aur raat, khane ke baad', 'SOS'"
+                        ),
+                    },
+                },
+            },
+        }
+    },
+}
+
+
+def _pluck_medications(body: dict) -> list:
+    """Dig the medication array out of Doc AI's result envelope.
+
+    The payload has been seen as both `result` and `results`, and as either a
+    dict or a single-element list wrapping one.
+    """
+    result = body.get("result") or body.get("results") or {}
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except ValueError:
+            return []
+    if isinstance(result, list):
+        if not result or not isinstance(result[0], dict):
+            return []
+        result = result[0].get("result", result[0])
+    if isinstance(result, dict):
+        meds = result.get("medications")
+        if isinstance(meds, list):
+            return meds
+    return []
