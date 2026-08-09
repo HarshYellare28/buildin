@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, UploadFile
+from fastapi import APIRouter, Request
 from pydantic import ValidationError
+# request.form() is raw Starlette parsing (bypasses FastAPI's File()/Form()
+# dependency injection), so it hands back starlette's UploadFile — checking
+# against fastapi.UploadFile here always fails since the parent class is
+# never an instance of its own subclass.
+from starlette.datastructures import UploadFile
 
 from ..errors import ApiError
 from ..models.schemas import (
