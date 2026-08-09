@@ -15,6 +15,19 @@
 11. **Event ledger** — immutable timeline of every dose event, exception, and system action.
 12. **Clinician summary** — one-page delta of the episode, generated on demand.
 
+## Sarvam stack
+
+| Sarvam product | Where it's used | Features |
+| --- | --- | --- |
+| **Vision / Docs AI** | Discharge sheet + Rx photo scanning, medicine strip reading | 1, 2, stretch strip verification |
+| **Saaras (streaming STT)** | Patient speech on dose calls and clarification — code-mixed, noisy home audio | 1, 6, 7, 8 |
+| **Bulbul (TTS)** | Agent's outbound voice in the patient's language, incl. critical-field read-back | 6 |
+| **Sarvam Voice (multi-turn / speaker-aware)** | Separating patient vs caregiver sessions in a live call | 4, 6 |
+| **Translation** | Patient language ↔ caregiver language for packets and summaries | 10, 12 |
+| **Sarvam LLM (30B / 105B)** | Med extraction to JSON, exception classification, packet + summary writing — all under the policy kernel | 2, 8, 10, 12 |
+
+Sarvam is the speech and extraction layer; the med graph, roles, policy kernel, scheduler, and ledger are ours. If the Indic speech path fails, the product fails — that's the load-bearing dependency.
+
 ## Stretch
 
 - Real PSTN outbound calling
