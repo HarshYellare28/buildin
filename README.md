@@ -31,19 +31,23 @@ Shared contracts (everyone reads, nobody freelances):
 
 ## Repo layout
 
+**This folder (`buildin/`) is the git root.** Clone it, push to it, open it as the project.
+
 ```text
-sarvambuildin/
+buildin/                      # git repository root
 ├── README.md                 # you are here
 ├── .env.example
-├── docs/                     # product + contracts (Arnav)
+├── DAWA.md                   # full product brief (also docs/DAWA.md)
+├── features.md               # feature map → points at docs/MVP.md
+├── docs/                     # MVP, contract, demo, git rules (Arnav)
 ├── team/                     # personal playbooks
 ├── fixtures/                 # discharge text, formulary, sample packet
 ├── scripts/                  # seed + demo-reset
 ├── apps/
 │   └── web/                  # Next.js cockpit (Harsh)
 ├── services/
-│   └── api/                  # FastAPI backend (Barkha + Jyotir voice module)
-└── buildin/                  # original product notes
+│   └── api/                  # FastAPI backend (Barkha + Jyotir voice)
+└── packages/shared/          # optional shared schemas later
 ```
 
 ---
@@ -114,5 +118,6 @@ Merge order and rules: [docs/GIT_AND_AGENTS.md](docs/GIT_AND_AGENTS.md).
 ## Status
 
 - Repo scaffolded for 8-hour hackathon execution.
-- Product vision: `buildin/DAWA.md`.
+- Product vision: `DAWA.md` / `docs/DAWA.md`.
 - Execution truth: `docs/MVP.md` + team playbooks.
+- Git root: this directory (`buildin/`).

@@ -1,6 +1,6 @@
 # DAWA — Features
 
-**Execution truth for the hackathon:** [docs/MVP.md](../docs/MVP.md)
+**Execution truth for the hackathon:** [docs/MVP.md](docs/MVP.md)
 
 This file remains the product feature map.
 For the under-8-hour build, only **SHIP** items are in scope.
@@ -43,7 +43,7 @@ Diagnosis, autonomous prescription changes, EHR integration, ambient always-on m
 
 | Area | Person | Playbook |
 | --- | --- | --- |
-| Product / demo / merge | Arnav | [team/Arnav.md](../team/Arnav.md) |
-| Backend / policy | Barkha | [team/Barkha.md](../team/Barkha.md) |
-| Voice | Jyotir | [team/Jyotir.md](../team/Jyotir.md) |
-| Web cockpit | Harsh | [team/Harsh.md](../team/Harsh.md) |
+| Product / demo / merge | Arnav | [team/Arnav.md](team/Arnav.md) |
+| Backend / policy | Barkha | [team/Barkha.md](team/Barkha.md) |
+| Voice | Jyotir | [team/Jyotir.md](team/Jyotir.md) |
+| Web cockpit | Harsh | [team/Harsh.md](team/Harsh.md) |
