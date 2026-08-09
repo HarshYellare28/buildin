@@ -16,20 +16,53 @@ CRITICALITY_RANK = {"high": 3, "med": 2, "low": 1}
 # ----------------------------------------------------------------------- plans
 
 
-def assert_in_formulary(medications: list[Medication]) -> None:
-    """The med graph only ever holds locked-formulary drugs.
+# What the drug *is* comes from fixtures/formulary.json, never from the client.
+# criticality is in here because the policy kernel reads it: a client that could
+# set it could talk the kernel out of refusing a double dose. Dose and schedule
+# stay editable — PATCH is the human-confirm path and titration is a real edit.
+LOCKED_FIELDS = ("id", "name_raw", "name_normalized", "route", "criticality")
+EDITABLE_FIELDS = (
+    "dose",
+    "unit",
+    "times",
+    "schedule_text",
+    "food_rule",
+    "duration_days",
+    "source",
+    "confidence",
+)
+
+
+def lock_to_formulary(medications: list[Medication]) -> list[Medication]:
+    """Snap edited medications back onto the locked formulary row.
 
     Extract already snaps onto the formulary; this guards the human-edit path so
-    a UI bug cannot push a drug nobody prescribed into an activatable plan.
+    a UI bug cannot push a drug nobody prescribed into an activatable plan, or
+    relabel a prescribed one.
     """
     ids = formulary_by_id()
     names = formulary_by_name()
+
+    locked: list[Medication] = []
     for med in medications:
-        if med.id not in ids and med.name_normalized not in names:
+        row = ids.get(med.id) or names.get(med.name_normalized)
+        if row is None:
             raise ApiError(
                 "MEDICATION_NOT_IN_FORMULARY",
                 f"{med.name_raw!r} is not in the locked demo formulary",
             )
+        # An id and a name that disagree is a caller bug. Snapping it back to the
+        # id's drug would hide a UI that thinks it is editing something else.
+        if med.name_normalized and med.name_normalized != row["name_normalized"]:
+            raise ApiError(
+                "MEDICATION_MISMATCH",
+                f"{row['id']} is {row['name_normalized']}, not {med.name_normalized!r}",
+            )
+
+        merged = {f: row[f] for f in LOCKED_FIELDS}
+        merged.update({f: getattr(med, f) for f in EDITABLE_FIELDS})
+        locked.append(Medication(**merged))
+    return locked
 
 
 def create_plan(medications: list[Medication], follow_up: FollowUp | None = None) -> Plan:
@@ -73,8 +106,7 @@ def patch_medications(
     plan = get_plan(plan_id)
     if plan.status != "draft":
         raise Conflict("PLAN_NOT_DRAFT", "Only draft plans can be edited")
-    assert_in_formulary(medications)
-    plan.medications = medications
+    plan.medications = lock_to_formulary(medications)
     if set_follow_up:  # omitted key keeps the extracted follow-up as-is
         plan.follow_up = follow_up
     return save_plan(plan)
@@ -176,4 +208,23 @@ def save_dose(dose: dict) -> dict:
         "UPDATE doses SET status = ?, data = ? WHERE id = ?",
         (dose["status"], db.dumps(dose), dose["id"]),
     )
+    return dose
+
+
+def claim_dose_for_completion(dose_id: str) -> dict:
+    """Move a dose to completed, atomically. Exactly one caller can win.
+
+    Reading the status and then writing it are two statements, so a retried
+    webhook landing twice at once would otherwise pass both checks and write
+    two outcomes and two caregiver packets for one dose. The guard belongs in
+    the WHERE clause, not in an if.
+    """
+    dose = get_dose(dose_id)
+    dose["status"] = "completed"
+    cur = db.execute(
+        "UPDATE doses SET status = 'completed', data = ? WHERE id = ? AND status != 'completed'",
+        (db.dumps(dose), dose_id),
+    )
+    if cur.rowcount == 0:
+        raise Conflict("DOSE_ALREADY_COMPLETED", f"Dose {dose_id} is already completed")
     return dose

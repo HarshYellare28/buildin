@@ -74,12 +74,13 @@ def voice_turn(dose_id: str, body: VoiceTurnRequest) -> dict:
 def complete(dose_id: str, body: CompleteRequest) -> dict:
     """The only write path for final adherence, exception and caregiver packet."""
     dose = plans.get_dose(dose_id)
-    if dose["status"] == "completed":
-        raise Conflict("DOSE_ALREADY_COMPLETED", f"Dose {dose_id} is already completed")
-
     plan = plans.get_plan(dose["plan_id"])
     if plan.status != "active":
         raise ApiError("PLAN_NOT_ACTIVE", "Activate plan before completing dose")
+
+    # Claim last: everything above can reject the call, and a rejected call must
+    # not leave the dose marked completed.
+    dose = plans.claim_dose_for_completion(dose_id)
 
     medication = Medication(**dose["medication"])
     decision = evaluate_completion(
@@ -89,7 +90,6 @@ def complete(dose_id: str, body: CompleteRequest) -> dict:
         confidence=body.confidence,
     )
 
-    dose["status"] = "completed"
     dose["completed_at"] = db.now_iso()
     dose["outcome"] = body.model_dump()
     dose["policy"] = decision.as_policy_result()
