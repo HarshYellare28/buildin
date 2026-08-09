@@ -281,9 +281,9 @@ export default function CockpitApp() {
   }[state.doseStatus];
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", fontFamily: "var(--font-body)" }}>
-      <div style={{ width: "100%", maxWidth: 430, minHeight: "100vh", background: "var(--color-bg)", display: "flex", flexDirection: "column" }}>
-        <header style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--color-bg)", borderBottom: "1px solid var(--color-divider)", padding: "16px 18px 12px" }}>
+    <div className="cockpit-frame">
+      <div className="cockpit-shell">
+        <header className="cockpit-header">
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
               <span style={{ fontFamily: "var(--font-heading)", fontWeight: 600, fontSize: 22 }}>DAWA</span>
@@ -301,7 +301,7 @@ export default function CockpitApp() {
           {state.error && <p style={{ color: "#b3491f", fontSize: 12, margin: "10px 0 0" }}>{state.error}</p>}
         </header>
 
-        <main style={{ flex: 1, overflowY: "auto", padding: "18px 18px 90px" }}>
+        <main className="cockpit-main">
           {state.activeTab === "ingest" && (
             <div className="card">
               <div className="card-kicker">1 · Ingest</div>
@@ -405,7 +405,7 @@ export default function CockpitApp() {
           )}
         </main>
 
-        <nav style={{ position: "sticky", bottom: 0, background: "var(--color-bg)", borderTop: "1px solid var(--color-divider)", display: "flex" }}>
+        <nav className="cockpit-nav">
           <NavButton label="Ingest" active={state.activeTab === "ingest"} onClick={() => goToTab("ingest")} icon={<IngestTabIcon />} />
           <NavButton label="Meds" active={state.activeTab === "meds"} onClick={() => goToTab("meds")} icon={<MedsTabIcon />} />
           <NavButton label="Call" active={state.activeTab === "dose"} onClick={() => goToTab("dose")} icon={<DoseTabIcon />} />
