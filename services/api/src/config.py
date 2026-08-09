@@ -22,10 +22,21 @@ SARVAM_API_BASE = os.getenv("SARVAM_API_BASE", "https://api.sarvam.ai").rstrip("
 SARVAM_MODEL = os.getenv("SARVAM_MODEL", "sarvam-105b-conversations").strip()
 SARVAM_TIMEOUT_SECONDS = float(os.getenv("SARVAM_TIMEOUT_SECONDS", "25"))
 
-# auto: formulary parse first, LLM only when it finds nothing (fast demo, real
-# fallback for off-fixture text). deterministic: never call the LLM.
-# llm: LLM first, formulary parse as backstop.
-EXTRACT_MODE = os.getenv("EXTRACT_MODE", "auto").strip().lower()
+# Current voice defaults, shared with Jyotir's mounted voice router.
+SARVAM_STT_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v3").strip()
+SARVAM_TTS_MODEL = os.getenv("SARVAM_TTS_MODEL", "bulbul:v3").strip()
+SARVAM_TTS_SPEAKER = os.getenv("SARVAM_TTS_SPEAKER", "ritu").strip()
+SARVAM_VOICE_TIMEOUT_SECONDS = float(os.getenv("SARVAM_VOICE_TIMEOUT_SECONDS", "30"))
+
+# llm (default): Sarvam first, formulary parse as backstop when it returns
+# nothing. deterministic: never call the LLM (tests pin this).
+# auto: formulary parse first, LLM only as rescue — fastest, but on the demo
+# fixture the parse always hits, so Sarvam is never exercised.
+EXTRACT_MODE = os.getenv("EXTRACT_MODE", "llm").strip().lower()
+
+# App loggers are silent under uvicorn's default config (it only attaches
+# handlers to its own loggers). Without this, every sarvam log line vanishes.
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()
 
 DEMO_PATIENT_LANG = os.getenv("DEMO_PATIENT_LANG", "hi-IN")
 DEMO_CAREGIVER_LANG = os.getenv("DEMO_CAREGIVER_LANG", "en-IN")
