@@ -1,0 +1,16 @@
+{
+  "patient": {
+    "id": "p_lakshmi",
+    "display_name": "Lakshmi",
+    "role": "patient",
+    "languages": ["hi-IN"],
+    "phone": "+919800000001"
+  },
+  "caregiver": {
+    "id": "c_ananya",
+    "display_name": "Ananya",
+    "role": "caregiver",
+    "languages": ["en-IN"],
+    "phone": "+919800000002"
+  }
+}

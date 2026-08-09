@@ -1,0 +1,42 @@
+# env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# deps
+node_modules/
+.pnpm-store/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# build
+dist/
+build/
+.next/
+out/
+*.egg-info/
+.turbo/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.claude/
+.cursor/
+
+# logs / local db
+*.log
+*.sqlite
+*.db
+data/local/
+
+# agent / temp
+.agent-scratch/
+tmp/

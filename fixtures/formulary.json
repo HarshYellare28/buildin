@@ -1,0 +1,64 @@
+{
+  "medications": [
+    {
+      "id": "med_amlodipine",
+      "name_raw": "Amlodipine 5mg",
+      "name_normalized": "amlodipine",
+      "dose": 5,
+      "unit": "mg",
+      "route": "oral",
+      "schedule_text": "Night",
+      "times": ["21:00"],
+      "food_rule": "none",
+      "duration_days": 30,
+      "criticality": "high",
+      "source": "paste",
+      "confidence": 0.92
+    },
+    {
+      "id": "med_metformin",
+      "name_raw": "Metformin 500mg",
+      "name_normalized": "metformin",
+      "dose": 500,
+      "unit": "mg",
+      "route": "oral",
+      "schedule_text": "Morning and night with food",
+      "times": ["08:00", "21:00"],
+      "food_rule": "with_food",
+      "duration_days": 30,
+      "criticality": "med",
+      "source": "paste",
+      "confidence": 0.88
+    },
+    {
+      "id": "med_atorvastatin",
+      "name_raw": "Atorvastatin 10mg",
+      "name_normalized": "atorvastatin",
+      "dose": 10,
+      "unit": "mg",
+      "route": "oral",
+      "schedule_text": "Night",
+      "times": ["21:00"],
+      "food_rule": "none",
+      "duration_days": 30,
+      "criticality": "med",
+      "source": "paste",
+      "confidence": 0.9
+    },
+    {
+      "id": "med_paracetamol",
+      "name_raw": "Paracetamol 500mg",
+      "name_normalized": "paracetamol",
+      "dose": 500,
+      "unit": "mg",
+      "route": "oral",
+      "schedule_text": "SOS for fever",
+      "times": [],
+      "food_rule": "none",
+      "duration_days": 5,
+      "criticality": "low",
+      "source": "paste",
+      "confidence": 0.85
+    }
+  ]
+}

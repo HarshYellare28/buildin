@@ -1,0 +1,21 @@
+{
+  "id": "pkt_example",
+  "patient_name": "Lakshmi",
+  "event_time": "2026-08-09T20:05:00+05:30",
+  "medication": "Amlodipine 5mg",
+  "status": "taken",
+  "exception": {
+    "type": "side_effect",
+    "patient_reported": "pet mein jalan",
+    "normalized": "abdominal_burning"
+  },
+  "system_action": "logged_and_escalated",
+  "suggested_caregiver_actions": [
+    "Ask if burning is severe or with vomiting",
+    "If severe, contact clinic on-call",
+    "Do not double next dose"
+  ],
+  "confidence": 0.86,
+  "needs_clinician": false,
+  "language": "en-IN"
+}
