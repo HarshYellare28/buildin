@@ -86,6 +86,18 @@ def test_patch_then_activate():
     assert client.get(f"/plans/{plan_id}").json()["status"] == "active"
 
 
+def test_active_plan_endpoint_restores_caregiver_state():
+    reset()
+    assert client.get("/plans/active").json() is None
+
+    plan_id = active_plan_id()
+    restored = client.get("/plans/active")
+    assert restored.status_code == 200
+    assert restored.json()["id"] == plan_id
+    assert restored.json()["status"] == "active"
+    assert restored.json()["medications"][0]["id"] == "med_amlodipine"
+
+
 def test_trigger_requires_active_plan():
     plan = extract_plan()
     response = client.post(

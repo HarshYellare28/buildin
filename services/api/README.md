@@ -55,6 +55,7 @@ contract has no such field — currently: no `quantity` on `Medication`,
 | --- | --- | --- |
 | GET | `/health` | `{"ok": true}` |
 | GET | `/people` | seeded patient + caregiver |
+| GET | `/plans/active` | active plan or `null`; restores cockpit after refresh |
 | POST | `/plans/extract` | `{text, source}` → draft plan + medications + follow-up |
 | GET | `/plans/{plan_id}` | full plan |
 | PATCH | `/plans/{plan_id}` | `{medications, follow_up?}`, draft only |

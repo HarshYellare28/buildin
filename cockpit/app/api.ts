@@ -29,6 +29,14 @@ export async function resetWorld(): Promise<void> {
   await request("/demo/reset", { method: "POST" });
 }
 
+export async function getActivePlan(): Promise<{
+  id: string;
+  status: "active";
+  medications: Medication[];
+} | null> {
+  return request("/plans/active");
+}
+
 export async function extractPlan(input: {
   source: "paste" | "ocr";
   text?: string;

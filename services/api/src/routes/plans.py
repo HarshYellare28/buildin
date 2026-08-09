@@ -78,6 +78,13 @@ async def extract(request: Request) -> dict:
     }
 
 
+@router.get("/plans/active", response_model=Plan | None)
+def get_active_plan() -> Plan | None:
+    """Restore the caregiver cockpit after a refresh or redeploy."""
+    plan_id = plans.active_plan_id()
+    return plans.get_plan(plan_id) if plan_id else None
+
+
 @router.get("/plans/{plan_id}", response_model=Plan)
 def get_plan(plan_id: str) -> Plan:
     return plans.get_plan(plan_id)

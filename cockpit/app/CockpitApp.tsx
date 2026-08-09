@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   extractPlan,
+  getActivePlan,
   getEvents,
   getLatestPacket,
   getOutboundDoseCall,
@@ -105,6 +106,37 @@ function eventDescription(event: LedgerEvent): string {
 export default function CockpitApp() {
   const [state, setState] = useState<CockpitState>(initialState);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreActivePlan = async () => {
+      try {
+        const plan = await getActivePlan();
+        if (!plan || cancelled) return;
+        const events = await getEvents(plan.id);
+        if (cancelled) return;
+        setState((current) => ({
+          ...current,
+          planId: plan.id,
+          planStatus: "active",
+          reviewed: true,
+          meds: plan.medications,
+          callMedicationId:
+            plan.medications.find((medication) => medication.id === "med_amlodipine")?.id ??
+            plan.medications[0]?.id ??
+            null,
+          events,
+          activeTab: "dose",
+        }));
+      } catch {
+        // Keep the fresh setup screen available if the API is temporarily unavailable.
+      }
+    };
+    void restoreActivePlan();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const goToTab = (activeTab: Tab) => setState((current) => ({ ...current, activeTab }));
   const fail = (error: unknown) => {
@@ -405,9 +437,20 @@ export default function CockpitApp() {
                     Sarvam attempt: {state.outboundAttemptId}
                   </p>
                 )}
-                <button type="button" className="btn btn-primary btn-block" disabled={state.busy || !state.callMedicationId || state.planStatus !== "active" || state.doseStatus === "calling"} onClick={startCall}>
-                  {state.busy ? "Starting…" : "Call Lakshmi now"}
-                </button>
+                {state.planStatus === "active" && state.callMedicationId ? (
+                  <button type="button" className="btn btn-primary btn-block" disabled={state.busy || state.doseStatus === "calling"} onClick={startCall}>
+                    {state.busy ? "Starting…" : "Call Lakshmi now"}
+                  </button>
+                ) : (
+                  <>
+                    <p className="note" style={{ margin: "10px 0 0" }}>
+                      Calls unlock after a caregiver reviews and activates the medication plan.
+                    </p>
+                    <button type="button" className="btn btn-primary btn-block" onClick={() => goToTab(state.meds.length ? "meds" : "ingest")}>
+                      {state.meds.length ? "Review & activate plan" : "Set up medication plan"}
+                    </button>
+                  </>
+                )}
                 {state.doseStatus === "calling" && (
                   <button type="button" className="btn btn-secondary btn-block" disabled={state.busy} onClick={refreshOutcome}>Check outcome & transcript</button>
                 )}
