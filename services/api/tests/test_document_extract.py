@@ -6,6 +6,7 @@ from src.main import app
 from src.models.schemas import Medication
 from src.routes import plans as plans_route
 from src.services import extract
+from src.services.sarvam import _strip_embedded_assets
 
 client = TestClient(app)
 
@@ -82,3 +83,16 @@ def test_current_digitization_text_is_parsed_through_locked_formulary(monkeypatc
     assert [med.name_normalized for med in medications] == ["amlodipine", "metformin"]
     assert medications[0].source == "ocr"
     assert medications[1].food_rule == "with_food"
+
+
+def test_digitization_drops_embedded_base64_before_medication_scan():
+    markdown = (
+        "![Image](data:image/jpeg;base64,AAAApcmBBBB)\n\n"
+        "## DAWA\nA family medication assistant"
+    )
+
+    cleaned = _strip_embedded_assets(markdown)
+
+    assert "base64" not in cleaned
+    assert "pcm" not in cleaned
+    assert extract.extract_medications(cleaned, source="ocr") == []

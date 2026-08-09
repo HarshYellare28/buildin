@@ -165,13 +165,14 @@ The configured endpoints are:
 | Call | Endpoint | Model env var |
 | --- | --- | --- |
 | `chat()` | `POST /v1/chat/completions` | `SARVAM_MODEL` = `sarvam-105b-conversations` |
-| `doc_ai_extract()` | `POST /doc-ai/v1/job/extract`, then polled | — (schema-driven) |
+| `doc_ai_extract()` | Document Digitization job (create/upload/start/poll/download) | — |
 | `speech_to_text()` | `POST /speech-to-text` (multipart) | `SARVAM_STT_MODEL` = `saaras:v3` |
 | `text_to_speech()` | `POST /text-to-speech` (base64 wav) | `SARVAM_TTS_MODEL` = `bulbul:v3` |
 
-Doc AI is a **job** API: the extract call returns a `job_id` and the results
-endpoint answers `409 RESULTS_NOT_READY` until the job finishes, so it is polled
-to a terminal status rather than awaited inline.
+Document Digitization is a **job** API: DAWA creates a job, uploads the page,
+starts processing, polls to a terminal status, and downloads the output ZIP.
+Embedded base64 image data is stripped before the locked formulary parser scans
+the OCR text, so random encoded bytes cannot match a short medicine alias.
 
 `sarvam-m` is deprecated and returns 400. Every call logs model, elapsed ms and
 outcome at INFO, and failures raise `SarvamError` with the upstream body — a

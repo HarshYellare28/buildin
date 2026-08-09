@@ -3,7 +3,7 @@
 Endpoints, all verified against api.sarvam.ai:
 
     chat()            POST /v1/chat/completions   sarvam-105b-conversations
-    doc_ai_extract()  POST /doc-ai/v1/job/extract (multipart, then polled)
+    doc_ai_extract()  Document Digitization create/upload/start/poll/download
     speech_to_text()  POST /speech-to-text        saaras:v3      (multipart)
     text_to_speech()  POST /text-to-speech        bulbul:v3      (base64 wav)
 
@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import tempfile
 import time
 import zipfile
@@ -202,17 +203,36 @@ def _digitization_text(output_path: Path) -> str:
         with zipfile.ZipFile(output_path) as archive:
             markdown = [name for name in archive.namelist() if name.lower().endswith(".md")]
             if markdown:
-                return "\n".join(
+                text = "\n".join(
                     archive.read(name).decode("utf-8", errors="replace") for name in markdown
                 )
+                return _strip_embedded_assets(text)
             json_files = [name for name in archive.namelist() if name.lower().endswith(".json")]
             chunks: list[str] = []
             for name in json_files:
                 value = json.loads(archive.read(name).decode("utf-8", errors="replace"))
                 chunks.extend(_text_values(value))
-            return "\n".join(chunks)
+            return _strip_embedded_assets("\n".join(chunks))
     except zipfile.BadZipFile:
-        return output_path.read_text(encoding="utf-8", errors="replace")
+        return _strip_embedded_assets(
+            output_path.read_text(encoding="utf-8", errors="replace")
+        )
+
+
+def _strip_embedded_assets(text: str) -> str:
+    """Remove base64 image payloads before medication-name scanning.
+
+    Digitization Markdown embeds the uploaded page as a data URI. Random base64
+    substrings can equal short formulary aliases such as ``pcm`` and must never
+    be interpreted as prescription text.
+    """
+    text = re.sub(r"!\[[^\]]*\]\(data:[^)]*\)", "", text, flags=re.IGNORECASE)
+    return re.sub(
+        r"<img\b[^>]*\bsrc=[\"']data:[^\"']*[\"'][^>]*>",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def _text_values(value: object) -> list[str]:
