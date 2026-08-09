@@ -17,14 +17,56 @@ Implements [docs/API_CONTRACT.md](../../docs/API_CONTRACT.md) exactly.
 cd services/api
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # fill SARVAM_API_KEY
+pip install -r requirements.txt      # resolves to the root requirements.txt
+cp ../../.env.example ../../.env     # one .env at the repo root; fill SARVAM_API_KEY
 uvicorn src.main:app --reload --port 8000
 ```
+
+Health check: `curl localhost:8000/health`
 
 DB is a SQLite file at `data/local/dawa.db` (repo-root relative, gitignored).
 Delete it any time; it is recreated on boot. CORS is open for any
 `localhost` / `127.0.0.1` port.
+
+The cockpit UI lives in [`cockpit/`](../../cockpit) and the live dose call in
+[`src/voice/`](src/voice/README.md); both are mounted or served against this API.
+
+## Ingest: paste and photo
+
+`POST /plans/extract` accepts **two content types**, deliberately:
+
+| Content type | Body | Used by |
+| --- | --- | --- |
+| `application/json` | `{text, source}` | scripts, tests, `docs/API_CONTRACT.md` |
+| `multipart/form-data` | `source=paste&text=…`, or `source=ocr` + `file=…` | the cockpit (a file part needs multipart) |
+
+Both reduce to `(source, text)` before anything clinical happens, so the JSON
+contract shape is preserved rather than replaced.
+
+For `source=ocr` the file goes to Sarvam Doc AI (`POST /doc-ai/v1/job/extract`,
+polled at `GET /doc-ai/v1/job/{id}/results`) with a schema asking for a
+`medications` array of `name` / `dose` / `schedule`. **Those rows are used as
+they come back** — the note is not reconstructed and re-parsed. `name` selects
+the formulary row and `schedule` is read for times and food rule.
+
+Doc AI still cannot introduce a drug: `name` only ever *selects* a row from
+`fixtures/formulary.json`, and dose, unit, route and criticality come from that
+row, never from the model. A name matching nothing we stock is dropped and
+logged with the reason.
+
+Two consequences worth knowing:
+
+- **No follow-up on the photo path.** Doc AI returns medications only, so there
+  is no note text to read "7 din baad OPD review" off — `follow_up` is `null`.
+  Paste the note if the follow-up visit matters.
+- **Formulary-only.** A photographed drug outside the demo formulary is dropped
+  rather than surfaced as a flagged low-confidence row, which is what the paste
+  path does too. One rule for both paths beats two.
+
+Only JPEG, PNG and PDF are accepted — Doc AI rejects everything else, so the
+route rejects it first (`UNSUPPORTED_FILE_TYPE`) rather than spending a round
+trip. A page yielding no known medication returns `OCR_EMPTY` (422); an upstream
+failure returns `OCR_FAILED` (502).
 
 ## Smoke + tests
 
@@ -56,7 +98,7 @@ contract has no such field — currently: no `quantity` on `Medication`,
 | GET | `/health` | `{"ok": true}` |
 | GET | `/people` | seeded patient + caregiver |
 | GET | `/plans/active` | active plan or `null`; restores cockpit after refresh |
-| POST | `/plans/extract` | `{text, source}` → draft plan + medications + follow-up |
+| POST | `/plans/extract` | JSON `{text, source}` or multipart (`source=ocr` + `file`) → draft plan + medications + follow-up |
 | GET | `/plans/{plan_id}` | full plan |
 | PATCH | `/plans/{plan_id}` | `{medications, follow_up?}`, draft only |
 | POST | `/plans/{plan_id}/activate` | human-confirmed → `active` |
@@ -94,9 +136,12 @@ POST /doses/{dose_id}/complete
 Calling it twice on the same dose returns `409 DOSE_ALREADY_COMPLETED` — the
 ledger is append-only and a dose has exactly one outcome.
 
-`src/voice/router.py` is the real Sarvam STT/TTS and deterministic dialogue
-path. `src/voice/turn.py` remains a lightweight compatibility endpoint for
-older callers; it does not write outcomes.
+The real dose call now lives in `src/voice/**` and is mounted at `/voice/*` by
+`main.py` — see [src/voice/README.md](src/voice/README.md). It writes state only
+by calling `POST /doses/{id}/complete` back over HTTP (`DAWA_API_URL`), so the
+system of record has exactly one writer either way. `src/voice/turn.py` remains
+the deterministic keyword placeholder behind `POST /doses/{id}/voice-turn`, kept
+because it needs no Sarvam key and no audio.
 
 ## Sarvam
 
@@ -120,8 +165,13 @@ The configured endpoints are:
 | Call | Endpoint | Model env var |
 | --- | --- | --- |
 | `chat()` | `POST /v1/chat/completions` | `SARVAM_MODEL` = `sarvam-105b-conversations` |
+| `doc_ai_extract()` | `POST /doc-ai/v1/job/extract`, then polled | — (schema-driven) |
 | `speech_to_text()` | `POST /speech-to-text` (multipart) | `SARVAM_STT_MODEL` = `saaras:v3` |
 | `text_to_speech()` | `POST /text-to-speech` (base64 wav) | `SARVAM_TTS_MODEL` = `bulbul:v3` |
+
+Doc AI is a **job** API: the extract call returns a `job_id` and the results
+endpoint answers `409 RESULTS_NOT_READY` until the job finishes, so it is polled
+to a terminal status rather than awaited inline.
 
 `sarvam-m` is deprecated and returns 400. Every call logs model, elapsed ms and
 outcome at INFO, and failures raise `SarvamError` with the upstream body — a
@@ -132,6 +182,12 @@ Check the key end to end before blaming the code:
 ```bash
 services/api/.venv/bin/python scripts/verify-sarvam.py
 ```
+
+The voice module has its own transport (`src/voice/sarvam_client.py`, same two
+speech endpoints) driven by `src/voice/config.py`. Both read the same
+`SARVAM_STT_MODEL` / `SARVAM_TTS_MODEL` / `SARVAM_TTS_SPEAKER` vars, and the
+defaults are kept identical on purpose — otherwise `verify-sarvam.py` would
+green-light a different model pair than the demo actually speaks on.
 
 ## Extract
 
@@ -227,6 +283,9 @@ with `MEDICATION_NOT_IN_FORMULARY`.
 Codes: `PLAN_NOT_FOUND`, `PLAN_NOT_ACTIVE`, `PLAN_NOT_DRAFT`, `PLAN_EMPTY`,
 `MEDICATION_NOT_FOUND`, `MEDICATION_NOT_IN_FORMULARY`, `DOSE_NOT_FOUND`,
 `DOSE_ALREADY_COMPLETED`, `PACKET_NOT_FOUND`, `INVALID_REQUEST`.
+
+Ingest adds: `MISSING_TEXT`, `BAD_SOURCE`, `MISSING_FILE`,
+`UNSUPPORTED_FILE_TYPE`, `UNSUPPORTED_CONTENT_TYPE`, `OCR_EMPTY`, `OCR_FAILED`.
 
 ## Branch
 

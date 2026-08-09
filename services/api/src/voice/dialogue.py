@@ -1,4 +1,4 @@
-"""The dose-call state machine.
+r"""The dose-call state machine.
 
 GREET_DOSE -> ASK_TAKEN -> WAIT_SYMPTOM -> CONFIRM_READBACK -> END
                   \__ one re-ask on unclear, then hand to a human __/

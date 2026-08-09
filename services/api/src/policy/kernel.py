@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 
 ACTION_LOG = "log"
 ACTION_ESCALATE = "escalate_caregiver"
-ACTION_PACKET = "caregiver_packet"
 
 # Intent vocabulary -> canonical intent. Unknown intents are refused by default.
 INTENT_ALIASES = {
