@@ -17,7 +17,18 @@ from fastapi.responses import JSONResponse
 from . import db
 from .config import CORS_ORIGINS, EXTRACT_MODE, LOG_LEVEL
 from .errors import ApiError
-from .routes import demo, doses, events, health, packets, people, plans, policy, sarvam_outbound
+from .routes import (
+    demo,
+    doses,
+    events,
+    health,
+    meal_checks,
+    packets,
+    people,
+    plans,
+    policy,
+    sarvam_outbound,
+)
 from .services import sarvam
 from .services.seed import ensure_seeded
 
@@ -53,7 +64,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    for module in (health, people, plans, doses, events, packets, policy, demo):
+    for module in (health, people, plans, doses, events, packets, policy, meal_checks, demo):
         app.include_router(module.router)
     app.include_router(sarvam_outbound.router)
 

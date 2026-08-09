@@ -20,6 +20,7 @@ EventType = Literal[
     "exception_logged",
     "packet_sent",
     "policy_refused",
+    "meal_checked",
 ]
 
 
@@ -109,6 +110,35 @@ class CarePacket(BaseModel):
     confidence: float
     needs_clinician: bool
     language: str
+
+
+MealBand = Literal["strong", "fair", "needs_attention"]
+MealSource = Literal["caregiver", "voice_transcript"]
+MealTimingStatus = Literal["matched", "not_required", "needs_confirmation"]
+
+
+class MealMedicationCheck(BaseModel):
+    medication_id: str
+    medication: str
+    food_rule: str
+    timing_status: MealTimingStatus
+    note: str
+
+
+class MealCheck(BaseModel):
+    id: str
+    plan_id: str
+    dose_id: str | None = None
+    recorded_at: str
+    meal_text: str
+    source: MealSource
+    score: int = Field(ge=0, le=100)
+    band: MealBand
+    headline: str
+    positive_signals: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    medication_checks: list[MealMedicationCheck] = Field(default_factory=list)
+    disclaimer: str
 
 
 # ---------- requests ----------
@@ -201,3 +231,8 @@ class PolicyCheckResponse(BaseModel):
     allowed: bool
     reason: str
     must_escalate: bool
+
+
+class MealCheckRequest(BaseModel):
+    meal_text: str = Field(min_length=2, max_length=500)
+    source: Literal["caregiver"] = "caregiver"

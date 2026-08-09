@@ -60,8 +60,9 @@ def test_outbound_payload_uses_locked_agent_variable_names(monkeypatch):
         "med_dose": "5 milligram",
         "care_giver": "Ananya",
         "user_name": "Lakshmi",
-        "call_summary": "Evening dose check for Amlodipine 5mg",
+        "call_summary": "Last-meal and evening dose check for Amlodipine 5mg",
     }
+    assert "pichhle khaane" in payload["app_config"]["app_overrides"]["initial_bot_message"]
     assert payload["user_config"]["user_phone_number"] == "+918779773480"
     assert payload["webhook_config"]["metadata"] == {
         "dose_id": "dose_1",
@@ -112,6 +113,43 @@ def test_webhook_completes_primary_path_and_creates_packet(monkeypatch):
         for event in client.get("/events", params={"plan_id": plan_id}).json()["events"]
     ]
     assert event_types[-3:] == ["dose_completed", "exception_logged", "packet_sent"]
+
+
+def test_real_sarvam_transcript_shape_is_saved_and_scores_meal(monkeypatch):
+    plan_id, dose = _calling_dose(monkeypatch)
+    monkeypatch.setattr(outbound_route, "SARVAM_WEBHOOK_TOKEN", "test-token")
+
+    response = client.post(
+        "/sarvam/webhook?token=test-token",
+        json={
+            "attempt_id": "attempt_test_1",
+            "status": "connected",
+            "interaction_id": "20260809/test-interaction",
+            "duration": 42.5,
+            "webhook_config": {
+                "metadata": {"dose_id": dose["dose_id"], "plan_id": plan_id, "test": True}
+            },
+            "interaction_transcript": [
+                {"role": "agent", "en_text": "What did you have in your last meal?"},
+                {"role": "user", "en_text": "I ate dal, rice, sabzi and curd."},
+                {"role": "agent", "en_text": "Did you take Amlodipine?"},
+                {"role": "user", "en_text": "Yes, I took it."},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["processed"] is True
+    call = client.get(f"/sarvam/outbound/{dose['dose_id']}").json()
+    assert call["interaction_id"] == "20260809/test-interaction"
+    assert call["duration_seconds"] == 42.5
+    assert len(call["transcript"]) == 4
+    meal = client.get(f"/plans/{plan_id}/meal-checks/latest").json()
+    assert meal["source"] == "voice_transcript"
+    assert meal["score"] >= 75
+    assert meal["meal_text"] == "I ate dal, rice, sabzi and curd"
+    events = client.get("/events", params={"plan_id": plan_id}).json()["events"]
+    assert "meal_checked" in [event["type"] for event in events]
 
 
 def test_webhook_rejects_wrong_token(monkeypatch):

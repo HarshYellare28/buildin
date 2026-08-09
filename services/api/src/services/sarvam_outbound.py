@@ -80,9 +80,15 @@ def build_payload(dose: dict, patient_name: str, caregiver_name: str) -> dict:
                 "care_giver": caregiver_name,
                 "user_name": patient_name,
                 "call_summary": (
-                    f"Evening dose check for {medication['name_normalized'].title()} "
+                    f"Last-meal and evening dose check for {medication['name_normalized'].title()} "
                     f"{_dose_number(medication)}{medication.get('unit')}"
                 ),
+            },
+            "app_overrides": {
+                "initial_bot_message": (
+                    f"Namaste {patient_name} ji. Main DAWA ka automated care assistant hoon. "
+                    "Sabse pehle, aapne apne pichhle khaane mein kya khaya tha?"
+                )
             },
         },
         "user_config": {

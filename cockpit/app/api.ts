@@ -1,4 +1,11 @@
-import { CarePacket, LedgerEvent, Medication, OutboundCall, TranscriptLine } from "./types";
+import {
+  CarePacket,
+  LedgerEvent,
+  MealCheck,
+  Medication,
+  OutboundCall,
+  TranscriptLine,
+} from "./types";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -137,4 +144,16 @@ export async function getEvents(planId: string): Promise<LedgerEvent[]> {
 
 export async function getLatestPacket(planId: string): Promise<CarePacket> {
   return request(`/packets/latest?plan_id=${encodeURIComponent(planId)}`);
+}
+
+export async function scoreMeal(planId: string, mealText: string): Promise<MealCheck> {
+  return request(`/plans/${encodeURIComponent(planId)}/meal-checks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ meal_text: mealText, source: "caregiver" }),
+  });
+}
+
+export async function getLatestMealCheck(planId: string): Promise<MealCheck | null> {
+  return request(`/plans/${encodeURIComponent(planId)}/meal-checks/latest`);
 }

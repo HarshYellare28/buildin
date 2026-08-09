@@ -32,7 +32,34 @@ export interface OutboundCall {
   attempt_id: string | null;
   call_status: string | null;
   failure_reason: string | null;
+  interaction_id: string | null;
+  duration_seconds: number | null;
   transcript: TranscriptLine[];
+}
+
+export type MealBand = "strong" | "fair" | "needs_attention";
+export type MealTimingStatus = "matched" | "not_required" | "needs_confirmation";
+
+export interface MealCheck {
+  id: string;
+  plan_id: string;
+  dose_id: string | null;
+  recorded_at: string;
+  meal_text: string;
+  source: "caregiver" | "voice_transcript";
+  score: number;
+  band: MealBand;
+  headline: string;
+  positive_signals: string[];
+  suggestions: string[];
+  medication_checks: Array<{
+    medication_id: string;
+    medication: string;
+    food_rule: string;
+    timing_status: MealTimingStatus;
+    note: string;
+  }>;
+  disclaimer: string;
 }
 
 export type LedgerEventType =
@@ -43,7 +70,8 @@ export type LedgerEventType =
   | "dose_completed"
   | "exception_logged"
   | "packet_sent"
-  | "policy_refused";
+  | "policy_refused"
+  | "meal_checked";
 
 export interface LedgerEvent {
   id: string;
@@ -87,6 +115,8 @@ export interface CockpitState {
   outboundAttemptId: string | null;
   voiceSessionId: string | null;
   transcript: TranscriptLine[];
+  mealText: string;
+  mealCheck: MealCheck | null;
   packet: CarePacket | null;
   events: LedgerEvent[];
   photoDataUrl: string | null;

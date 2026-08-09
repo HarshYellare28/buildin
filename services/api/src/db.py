@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS packets (
   created_at TEXT NOT NULL,
   data TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS meal_checks (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL,
+  dose_id TEXT,
+  created_at TEXT NOT NULL,
+  data TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS counters (
   name TEXT PRIMARY KEY,
   value INTEGER NOT NULL
@@ -130,7 +137,15 @@ def reset_world() -> None:
     """Clear every demo table. Seeding happens in services/seed.py."""
     conn = get_conn()
     with _lock:
-        for table in ("people", "plans", "doses", "events", "packets", "counters"):
+        for table in (
+            "people",
+            "plans",
+            "doses",
+            "events",
+            "packets",
+            "meal_checks",
+            "counters",
+        ):
             conn.execute(f"DELETE FROM {table}")
         try:
             conn.execute("DELETE FROM sqlite_sequence WHERE name = 'events'")

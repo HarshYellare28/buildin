@@ -13,6 +13,7 @@ from ..errors import ApiError, Conflict
 from ..models.schemas import CompleteRequest
 from ..policy.kernel import check_intent
 from ..services import ledger, plans
+from ..services.meal_checks import extract_meal_from_patient_text
 from ..services.sarvam_outbound import place_call
 from ..services.seed import get_people
 from ..voice.classify import Classification, classify_regex
@@ -57,7 +58,7 @@ def _final_variables(payload: dict) -> dict:
 
 
 def _line_text(item: dict) -> str:
-    for key in ("text", "content", "transcript", "utterance", "message"):
+    for key in ("text", "en_text", "content", "transcript", "utterance", "message"):
         value = item.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -74,7 +75,10 @@ def _normalized_role(value: Any) -> str:
 
 
 def _normalized_transcript(payload: dict) -> list[dict[str, str]]:
-    transcript = _first_key(payload, {"transcript", "conversation", "messages", "turns"})
+    transcript = _first_key(
+        payload,
+        {"interaction_transcript", "transcript", "conversation", "messages", "turns"},
+    )
     lines: list[dict[str, str]] = []
     if isinstance(transcript, list):
         for item in transcript:
@@ -191,6 +195,8 @@ def outbound_status(dose_id: str) -> dict:
         "attempt_id": dose.get("sarvam_attempt_id"),
         "call_status": dose.get("sarvam_call_status"),
         "failure_reason": dose.get("sarvam_failure"),
+        "interaction_id": dose.get("sarvam_interaction_id"),
+        "duration_seconds": dose.get("sarvam_duration_seconds"),
         "transcript": dose.get("sarvam_transcript", []),
     }
 
@@ -225,6 +231,8 @@ async def receive_webhook(request: Request, token: str = Query(default="")) -> d
     status = str(_first_key(payload, {"status", "call_status"}) or "").lower()
     transcript = _normalized_transcript(payload)
     dose["sarvam_call_status"] = status or "received"
+    dose["sarvam_interaction_id"] = _first_key(payload, {"interaction_id"})
+    dose["sarvam_duration_seconds"] = _first_key(payload, {"duration", "duration_in_seconds"})
     dose["sarvam_transcript"] = transcript
     plans.save_dose(dose)
     if status in _FAILED_STATUSES:
@@ -234,6 +242,16 @@ async def receive_webhook(request: Request, token: str = Query(default="")) -> d
         return {"ok": True, "processed": False, "status": "failed", "dose_id": dose_id}
 
     result, patient_text = _outcome(payload)
+    meal_text = extract_meal_from_patient_text(patient_text)
+    if meal_text:
+        from .meal_checks import record_meal_check
+
+        record_meal_check(
+            plan_id,
+            meal_text,
+            source="voice_transcript",
+            dose_id=dose_id,
+        )
     if result.double_dose_request and not dose.get("double_dose_refusal_logged"):
         medication = dose["medication"]
         decision = check_intent("double_dose", medication.get("criticality"))

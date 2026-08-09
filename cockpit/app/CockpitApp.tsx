@@ -5,11 +5,13 @@ import {
   extractPlan,
   getActivePlan,
   getEvents,
+  getLatestMealCheck,
   getLatestPacket,
   getOutboundDoseCall,
   resetWorld,
   runDisasterFallback,
   saveAndActivatePlan,
+  scoreMeal,
   startOutboundDoseCall,
   startVoiceSession,
   triggerDose,
@@ -34,6 +36,7 @@ import {
   IngestMode,
   LedgerEvent,
   LedgerEventType,
+  MealCheck,
   Medication,
   Tab,
 } from "./types";
@@ -51,6 +54,7 @@ const TYPE_LABELS: Record<LedgerEventType, string> = {
   exception_logged: "Exception logged",
   packet_sent: "Caregiver packet sent",
   policy_refused: "Unsafe action refused",
+  meal_checked: "Meal checked",
 };
 
 const tabBase: React.CSSProperties = {
@@ -98,6 +102,8 @@ function eventDescription(event: LedgerEvent): string {
       return "Structured English update sent to Ananya";
     case "policy_refused":
       return String(payload.reason ?? "Unsafe medication action refused");
+    case "meal_checked":
+      return `Meal support ${String(payload.score ?? "—")}/100 · ${String(payload.source ?? "recorded")}`;
     default:
       return TYPE_LABELS[event.type];
   }
@@ -113,7 +119,10 @@ export default function CockpitApp() {
       try {
         const plan = await getActivePlan();
         if (!plan || cancelled) return;
-        const events = await getEvents(plan.id);
+        const [events, mealCheck] = await Promise.all([
+          getEvents(plan.id),
+          getLatestMealCheck(plan.id),
+        ]);
         if (cancelled) return;
         setState((current) => ({
           ...current,
@@ -126,6 +135,8 @@ export default function CockpitApp() {
             plan.medications[0]?.id ??
             null,
           events,
+          mealCheck,
+          mealText: mealCheck?.meal_text ?? current.mealText,
           activeTab: "dose",
         }));
       } catch {
@@ -230,13 +241,30 @@ export default function CockpitApp() {
     }
   };
 
+  const checkMeal = async () => {
+    if (!state.planId || state.planStatus !== "active") return;
+    if (state.mealText.trim().length < 2) {
+      setState((current) => ({ ...current, error: "Tell us what Lakshmi ate first." }));
+      return;
+    }
+    setState((current) => ({ ...current, busy: true, error: null }));
+    try {
+      const mealCheck = await scoreMeal(state.planId, state.mealText.trim());
+      const events = await getEvents(state.planId);
+      setState((current) => ({ ...current, busy: false, mealCheck, events }));
+    } catch (error) {
+      fail(error);
+    }
+  };
+
   const refreshOutcome = async () => {
     if (!state.planId) return;
     setState((current) => ({ ...current, busy: true, error: null }));
     try {
-      const [events, call] = await Promise.all([
+      const [events, call, mealCheck] = await Promise.all([
         getEvents(state.planId),
         state.doseId ? getOutboundDoseCall(state.doseId) : Promise.resolve(null),
+        getLatestMealCheck(state.planId),
       ]);
       let packet: CarePacket | null = null;
       try {
@@ -254,6 +282,8 @@ export default function CockpitApp() {
         packet,
         doseStatus: completed ? "completed" : call?.status === "failed" ? "failed" : current.doseStatus,
         transcript: call?.transcript ?? current.transcript,
+        mealCheck,
+        mealText: mealCheck?.meal_text ?? current.mealText,
         activeTab: packet ? "packet" : current.activeTab,
       }));
     } catch (error) {
@@ -455,7 +485,8 @@ export default function CockpitApp() {
                   <button type="button" className="btn btn-secondary btn-block" disabled={state.busy} onClick={refreshOutcome}>Check outcome & transcript</button>
                 )}
                 <p className="note" style={{ marginTop: 10 }}>
-                  The caregiver can call at any time. Lakshmi still uses only her phone.
+                  The agent asks about Lakshmi&apos;s last meal first, then completes the dose check.
+                  Lakshmi still uses only her phone.
                 </p>
                 {state.transcript.length > 0 && (
                   <div className="call-transcript" aria-label="Full call transcript">
@@ -469,6 +500,36 @@ export default function CockpitApp() {
                     ))}
                   </div>
                 )}
+              </div>
+              <div className="card meal-card" style={{ marginTop: 14 }}>
+                <div className="card-kicker">Meal intelligence</div>
+                <div className="card-title">What did Lakshmi have in her last meal?</div>
+                <p className="card-body">
+                  The voice call can fill this automatically. A caregiver can also record it here.
+                </p>
+                <div className="field" style={{ marginTop: 8 }}>
+                  <label htmlFor="last-meal">Last meal</label>
+                  <textarea
+                    id="last-meal"
+                    className="input"
+                    rows={3}
+                    placeholder="Dal, chawal, sabzi and curd"
+                    value={state.mealText}
+                    disabled={state.busy || state.planStatus !== "active"}
+                    onChange={(event) =>
+                      setState((current) => ({ ...current, mealText: event.target.value }))
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  disabled={state.busy || state.planStatus !== "active" || state.mealText.trim().length < 2}
+                  onClick={checkMeal}
+                >
+                  {state.busy ? "Checking…" : "Score meal against plan"}
+                </button>
+                {state.mealCheck && <MealCheckView check={state.mealCheck} />}
               </div>
               {DEV_MODE && state.doseStatus === "calling" && (
                 <div style={{ marginTop: 18, border: "1px dashed #b3491f", borderRadius: 4, padding: 14 }}>
@@ -572,5 +633,79 @@ function PacketView({ packet }: { packet: CarePacket }) {
         <p style={{ fontSize: 12, opacity: 0.6, marginTop: 8 }}>Discharge is not the end of care. Execution is.</p>
       </div>
     </>
+  );
+}
+
+function MealCheckView({ check }: { check: MealCheck }) {
+  const bandLabel = {
+    strong: "Strong support",
+    fair: "Fair support",
+    needs_attention: "Needs attention",
+  }[check.band];
+  const timingChecks = check.medication_checks.filter(
+    (item) => item.food_rule !== "none" || item.timing_status === "needs_confirmation",
+  );
+  const noTimingCount = check.medication_checks.length - timingChecks.length;
+  const scoreStyle = {
+    "--meal-score": `${check.score * 3.6}deg`,
+  } as React.CSSProperties;
+
+  return (
+    <div className="meal-result" aria-live="polite">
+      <div className="hr" />
+      <div className="meal-score-row">
+        <div className={`meal-score-ring ${check.band}`} style={scoreStyle}>
+          <strong>{check.score}</strong>
+          <span>/100</span>
+        </div>
+        <div>
+          <span className={`tag meal-band ${check.band}`}>{bandLabel}</span>
+          <div className="card-title" style={{ marginTop: 7 }}>{check.headline}</div>
+          <div className="card-meta" style={{ marginTop: 5 }}>
+            {check.source === "voice_transcript" ? "Captured from Lakshmi's call" : "Recorded by caregiver"}
+          </div>
+        </div>
+      </div>
+
+      <div className="meal-quote">&ldquo;{check.meal_text}&rdquo;</div>
+
+      {timingChecks.length > 0 && (
+        <div className="meal-section">
+          <div className="card-kicker">Medication timing</div>
+          {timingChecks.map((item) => (
+            <div className="meal-timing" key={item.medication_id}>
+              <span className={`meal-status-dot ${item.timing_status}`} aria-hidden="true" />
+              <div>
+                <strong>{item.medication}</strong>
+                <p>{item.note}</p>
+              </div>
+            </div>
+          ))}
+          {noTimingCount > 0 && (
+            <p className="note" style={{ margin: "6px 0 0" }}>
+              {noTimingCount} other planned medicine{noTimingCount === 1 ? " has" : "s have"} no recorded meal-timing requirement.
+            </p>
+          )}
+        </div>
+      )}
+
+      {check.positive_signals.length > 0 && (
+        <div className="meal-signal-list">
+          {check.positive_signals.slice(0, 3).map((signal) => (
+            <span key={signal}>✓ {signal}</span>
+          ))}
+        </div>
+      )}
+
+      {check.suggestions.length > 0 && (
+        <div className="meal-section">
+          <div className="card-kicker">Next best actions</div>
+          <ul className="meal-suggestions">
+            {check.suggestions.map((suggestion) => <li key={suggestion}>{suggestion}</li>)}
+          </ul>
+        </div>
+      )}
+      <p className="meal-disclaimer">{check.disclaimer}</p>
+    </div>
   );
 }

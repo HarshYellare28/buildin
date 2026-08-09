@@ -28,6 +28,8 @@ export function initialState(): CockpitState {
     outboundAttemptId: null,
     voiceSessionId: null,
     transcript: [],
+    mealText: "",
+    mealCheck: null,
     packet: null,
     events: [],
     photoDataUrl: null,
