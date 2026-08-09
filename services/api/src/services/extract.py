@@ -132,14 +132,6 @@ def _drug_positions(text: str) -> dict[str, int]:
     return positions
 
 
-def _line_at(text: str, index: int) -> str:
-    start = text.rfind("\n", 0, index) + 1
-    end = text.find("\n", index)
-    if end == -1:
-        end = len(text)
-    return text[start:end]
-
-
 def _segment_at(text: str, index: int, positions: dict[str, int]) -> str:
     """This drug's own span of its line, not the whole line.
 

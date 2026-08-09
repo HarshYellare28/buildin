@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from .. import db
-from ..errors import ApiError
 from .fixtures import load_people
 
 
@@ -32,10 +31,3 @@ def get_people() -> dict:
     if "patient" not in people or "caregiver" not in people:
         return seed_people()
     return people
-
-
-def get_person(role: str) -> dict:
-    people = get_people()
-    if role not in people:
-        raise ApiError("PERSON_NOT_FOUND", f"No seeded {role}", status_code=404)
-    return people[role]
