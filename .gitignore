@@ -40,3 +40,6 @@ data/local/
 # agent / temp
 .agent-scratch/
 tmp/
+
+# local working logs — never push
+current_progress.md
