@@ -20,7 +20,6 @@ from .errors import ApiError
 from .routes import demo, doses, events, health, packets, people, plans, policy
 from .services import sarvam
 from .services.seed import ensure_seeded
-from .voice.router import router as voice_router
 
 
 @asynccontextmanager
@@ -56,7 +55,16 @@ def create_app() -> FastAPI:
 
     for module in (health, people, plans, doses, events, packets, policy, demo):
         app.include_router(module.router)
-    app.include_router(voice_router)
+
+    # Jyotir's live dose call. Everything it exposes sits under /voice/*, and it
+    # writes state only by calling POST /doses/{id}/complete back over HTTP —
+    # so a broken voice module cannot take the system of record down with it.
+    try:
+        from .voice.router import router as voice_router
+    except Exception:  # noqa: BLE001 — a missing voice dep must not stop the API
+        logging.getLogger(__name__).exception("voice router not mounted")
+    else:
+        app.include_router(voice_router)
 
     @app.exception_handler(ApiError)
     def handle_api_error(_: Request, exc: ApiError) -> JSONResponse:

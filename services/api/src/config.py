@@ -22,7 +22,11 @@ SARVAM_API_BASE = os.getenv("SARVAM_API_BASE", "https://api.sarvam.ai").rstrip("
 SARVAM_MODEL = os.getenv("SARVAM_MODEL", "sarvam-105b-conversations").strip()
 SARVAM_TIMEOUT_SECONDS = float(os.getenv("SARVAM_TIMEOUT_SECONDS", "25"))
 
-# Current voice defaults, shared with Jyotir's mounted voice router.
+# Voice models. These names are shared with voice/config.py — the live dose call
+# reads the same three vars, so the defaults must agree or the verify scripts
+# would exercise a different pair than the demo runs on. saaras:v3 / bulbul:v3 /
+# ritu is the combination verified live; ritu is female, which the Hindi
+# templates in voice/prompts.py assume (they use "rahi hoon").
 SARVAM_STT_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v3").strip()
 SARVAM_TTS_MODEL = os.getenv("SARVAM_TTS_MODEL", "bulbul:v3").strip()
 SARVAM_TTS_SPEAKER = os.getenv("SARVAM_TTS_SPEAKER", "ritu").strip()
