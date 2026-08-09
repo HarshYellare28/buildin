@@ -24,6 +24,7 @@ export function initialState(): CockpitState {
     meds: [],
     doseId: null,
     doseStatus: "idle",
+    outboundAttemptId: null,
     voiceSessionId: null,
     transcript: [],
     packet: null,

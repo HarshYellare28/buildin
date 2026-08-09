@@ -74,6 +74,7 @@ export interface CockpitState {
   meds: Medication[];
   doseId: string | null;
   doseStatus: DoseStatus;
+  outboundAttemptId: string | null;
   voiceSessionId: string | null;
   transcript: TranscriptLine[];
   packet: CarePacket | null;

@@ -28,6 +28,33 @@ SARVAM_TTS_MODEL = os.getenv("SARVAM_TTS_MODEL", "bulbul:v3").strip()
 SARVAM_TTS_SPEAKER = os.getenv("SARVAM_TTS_SPEAKER", "ritu").strip()
 SARVAM_VOICE_TIMEOUT_SECONDS = float(os.getenv("SARVAM_VOICE_TIMEOUT_SECONDS", "30"))
 
+# Sarvam Conversations / Instant Outbound. This key can differ from the model
+# API key, so never silently send the model key to the Conversations endpoint.
+SARVAM_CONVERSATIONS_API_KEY = os.getenv("SARVAM_CONVERSATIONS_API_KEY", "").strip()
+SARVAM_OUTBOUND_BASE = os.getenv(
+    "SARVAM_OUTBOUND_BASE", "https://apps.sarvam.ai/api/outbounds/v1"
+).rstrip("/")
+SARVAM_ORG_ID = os.getenv(
+    "SARVAM_ORG_ID", "019f996a-c7e4-7e85-b98c-986748c68dc0"
+).strip()
+SARVAM_WORKSPACE_ID = os.getenv(
+    "SARVAM_WORKSPACE_ID", "019f996a-c7e8-7b1b-91a8-486ab550b37b"
+).strip()
+SARVAM_AGENT_APP_ID = os.getenv(
+    "SARVAM_AGENT_APP_ID", "Dawa-dealer-3fa05c2a-8533"
+).strip()
+SARVAM_AGENT_APP_VERSION = int(os.getenv("SARVAM_AGENT_APP_VERSION", "2"))
+SARVAM_CONNECTION_ID = os.getenv(
+    "SARVAM_CONNECTION_ID", "9b232ec0-df-2c8c62bf-ba5b"
+).strip()
+SARVAM_AGENT_PHONE_NUMBER = os.getenv(
+    "SARVAM_AGENT_PHONE_NUMBER", "+918065353757"
+).strip()
+SARVAM_USER_PHONE_NUMBER = os.getenv("SARVAM_USER_PHONE_NUMBER", "").strip()
+SARVAM_WEBHOOK_URL = os.getenv("SARVAM_WEBHOOK_URL", "").strip()
+SARVAM_WEBHOOK_TOKEN = os.getenv("SARVAM_WEBHOOK_TOKEN", "").strip()
+SARVAM_OUTBOUND_TIMEOUT_SECONDS = float(os.getenv("SARVAM_OUTBOUND_TIMEOUT_SECONDS", "30"))
+
 # llm (default): Sarvam first, formulary parse as backstop when it returns
 # nothing. deterministic: never call the LLM (tests pin this).
 # auto: formulary parse first, LLM only as rescue — fastest, but on the demo

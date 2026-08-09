@@ -8,6 +8,7 @@ import {
   resetWorld,
   runDisasterFallback,
   saveAndActivatePlan,
+  startOutboundDoseCall,
   startVoiceSession,
   triggerDose,
 } from "./api";
@@ -172,15 +173,19 @@ export default function CockpitApp() {
     setState((current) => ({ ...current, busy: true, error: null }));
     try {
       const dose = await triggerDose(state.planId);
-      const voice = await startVoiceSession(dose.dose_id, dose.medication);
+      const voice = DEV_MODE
+        ? await startVoiceSession(dose.dose_id, dose.medication)
+        : null;
+      const outbound = DEV_MODE ? null : await startOutboundDoseCall(dose.dose_id);
       const events = await getEvents(state.planId);
       setState((current) => ({
         ...current,
         busy: false,
         doseId: dose.dose_id,
         doseStatus: "calling",
-        voiceSessionId: voice.session_id,
-        transcript: voice.turns,
+        outboundAttemptId: outbound?.attempt_id ?? null,
+        voiceSessionId: voice?.session_id ?? null,
+        transcript: voice?.turns ?? [],
         events,
       }));
     } catch (error) {
@@ -359,6 +364,11 @@ export default function CockpitApp() {
                 <div className="card-kicker">3 · Patient voice call</div>
                 <div className="card-title">Evening Amlodipine check-in</div>
                 <p className="card-body">{doseStatusText}</p>
+                {state.outboundAttemptId && (
+                  <p className="note" style={{ margin: 0 }}>
+                    Sarvam attempt: {state.outboundAttemptId}
+                  </p>
+                )}
                 <button type="button" className="btn btn-primary btn-block" disabled={state.busy || state.planStatus !== "active" || state.doseStatus === "calling"} onClick={startCall}>
                   {state.busy ? "Starting…" : "Call Lakshmi"}
                 </button>

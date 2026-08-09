@@ -13,11 +13,11 @@ npm run dev
 
 Open <http://localhost:3000>. Run the FastAPI service on port 8000 first.
 
-The real path is:
+The production path is:
 
 ```text
-extract -> confirm/activate -> trigger dose -> voice outcome
-        -> caregiver packet + backend ledger
+extract -> confirm/activate -> Sarvam Instant Outbound -> patient phone
+        -> authenticated webhook -> caregiver packet + backend ledger
 ```
 
 `NEXT_PUBLIC_DEV_MODE=1` exposes a clearly labelled disaster fallback. It runs
@@ -26,6 +26,7 @@ it is not the judged phone-call path.
 
 ## Important boundary
 
-`Call Lakshmi` creates the dose and DAWA voice session. A real phone ring still
-requires a telephony transport (LiveKit/Twilio or Exotel) connected to the
-Sarvam STT/TTS pipeline. Do not replace that with a patient web microphone.
+With `NEXT_PUBLIC_DEV_MODE=0`, `Call Lakshmi` creates a dose and asks the DAWA
+API to place the configured Sarvam Instant Outbound call. The patient still has
+no web microphone or patient UI. The typed voice session exists only as the
+explicitly labelled disaster fallback.

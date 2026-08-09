@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from . import db
 from .config import CORS_ORIGINS, EXTRACT_MODE, LOG_LEVEL
 from .errors import ApiError
-from .routes import demo, doses, events, health, packets, people, plans, policy
+from .routes import demo, doses, events, health, packets, people, plans, policy, sarvam_outbound
 from .services import sarvam
 from .services.seed import ensure_seeded
 from .voice.router import router as voice_router
@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
 
     for module in (health, people, plans, doses, events, packets, policy, demo):
         app.include_router(module.router)
+    app.include_router(sarvam_outbound.router)
     app.include_router(voice_router)
 
     @app.exception_handler(ApiError)

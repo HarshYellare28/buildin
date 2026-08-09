@@ -86,6 +86,14 @@ export async function startVoiceSession(doseId: string, medication: Medication):
   });
 }
 
+export async function startOutboundDoseCall(doseId: string): Promise<{
+  dose_id: string;
+  status: "calling";
+  attempt_id: string;
+}> {
+  return request(`/sarvam/outbound/${doseId}`, { method: "POST" });
+}
+
 export async function runDisasterFallback(sessionId: string): Promise<{
   state: string;
   complete_posted: boolean;

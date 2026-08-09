@@ -65,6 +65,8 @@ contract has no such field — currently: no `quantity` on `Medication`,
 | POST | `/voice/sessions/{id}/turn` | Sarvam STT audio turn |
 | POST | `/voice/sessions/{id}/turn-text` | disaster fallback only |
 | POST | `/doses/{dose_id}/complete` | **only** writer of adherence/exception/packet |
+| POST | `/sarvam/outbound/{dose_id}` | place the configured Instant Outbound call |
+| POST | `/sarvam/webhook` | authenticated Sarvam result → complete dose + packet |
 | POST | `/policy/check` | `{intent, medication_id}` |
 | GET | `/events?plan_id=` | append-only ledger |
 | GET | `/packets/latest?plan_id=` | caregiver card |
@@ -95,6 +97,12 @@ path. `src/voice/turn.py` remains a lightweight compatibility endpoint for
 older callers; it does not write outcomes.
 
 ## Sarvam
+
+The Conversations key is kept separate as `SARVAM_CONVERSATIONS_API_KEY` and
+is sent only as `X-API-Key` to Instant Outbound. The callback includes the real
+`dose_id` and `plan_id` in Sarvam metadata. Its URL carries a generated token;
+production proxy and Uvicorn access logs must be disabled for that route so the
+token and patient transcript do not land in logs.
 
 Extraction traffic goes through `src/services/sarvam.py`; the mounted voice
 router keeps its stricter JSON-schema classifier in `src/voice/sarvam_client.py`.
