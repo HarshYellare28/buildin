@@ -13,7 +13,7 @@
 3. [docs/API_CONTRACT.md](../docs/API_CONTRACT.md)
 4. [docs/GIT_AND_AGENTS.md](../docs/GIT_AND_AGENTS.md)
 5. [docs/WIN_LOSE_TEST.md](../docs/WIN_LOSE_TEST.md)
-6. Background only: [buildin/DAWA.md](../buildin/DAWA.md)
+6. Background only: [docs/DAWA.md](../docs/DAWA.md)
 
 ---
 
@@ -148,7 +148,7 @@ READ-ONLY CONTEXT
 - docs/API_CONTRACT.md
 - docs/DEMO_SCRIPT.md
 - docs/WIN_LOSE_TEST.md
-- buildin/DAWA.md
+- docs/DAWA.md
 
 HARD SCOPE
 - SHIP list only from docs/MVP.md.
@@ -181,7 +181,7 @@ DONE CHECK
 | Reset script | API up → `./scripts/demo-reset.sh` exits 0 |
 | Smoke | `./scripts/smoke-api.sh` exits 0 |
 | E2E | Full demo script twice — see WIN_LOSE_TEST L4 |
-| Judge attack answers | You can answer the 5 questions in buildin/DAWA.md §21 without freezing |
+| Judge attack answers | You can answer the 5 questions in docs/DAWA.md §21 without freezing |
 
 ---
 

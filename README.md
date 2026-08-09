@@ -25,7 +25,7 @@ Shared contracts (everyone reads, nobody freelances):
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — second-by-second demo
 - [docs/GIT_AND_AGENTS.md](docs/GIT_AND_AGENTS.md) — branches, merge rules, agent prompts
 - [docs/WIN_LOSE_TEST.md](docs/WIN_LOSE_TEST.md) — how to test, what wins, what loses
-- [buildin/DAWA.md](buildin/DAWA.md) — full product brief (background only)
+- [docs/DAWA.md](docs/DAWA.md) — full product brief (background only)
 
 ---
 
