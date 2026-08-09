@@ -1,28 +1,28 @@
-export type Role = "caregiver" | "patient";
 export type Tab = "ingest" | "meds" | "dose" | "packet" | "ledger";
 export type IngestMode = "paste" | "photo";
 export type DoseStatus = "idle" | "calling" | "completed";
 export type PlanStatus = "draft" | "active";
 export type Criticality = "low" | "med" | "high";
-export type FoodRule = "with_food" | "none";
-export type Speaker = "agent" | "patient";
-export type PatientLanguage = "Hindi" | "Kannada";
+export type FoodRule = "with_food" | "none" | string;
 
 export interface Medication {
   id: string;
   name_raw: string;
+  name_normalized: string;
   dose: number;
   unit: string;
   route: string;
   schedule_text: string;
+  times: string[];
   food_rule: FoodRule;
+  duration_days: number;
   criticality: Criticality;
   confidence: number;
-  source?: "paste" | "ocr";
+  source: string;
 }
 
 export interface TranscriptLine {
-  speaker: Speaker;
+  role: "agent" | "patient";
   text: string;
 }
 
@@ -30,25 +30,31 @@ export type LedgerEventType =
   | "plan_created"
   | "plan_activated"
   | "dose_triggered"
+  | "dose_started"
   | "dose_completed"
   | "exception_logged"
-  | "packet_sent";
+  | "packet_sent"
+  | "policy_refused";
 
 export interface LedgerEvent {
   id: string;
-  ts: Date;
+  ts: string;
   type: LedgerEventType;
-  description: string;
+  plan_id?: string | null;
+  dose_id?: string | null;
+  payload: Record<string, unknown>;
 }
 
 export interface CarePacket {
+  id: string;
   patient_name: string;
+  event_time: string;
   medication: string;
   status: string;
   exception: {
     type: string;
-    patient_reported: string;
-    normalized: string;
+    patient_reported: string | null;
+    normalized: string | null;
   };
   system_action: string;
   suggested_caregiver_actions: string[];
@@ -58,20 +64,21 @@ export interface CarePacket {
 }
 
 export interface CockpitState {
-  role: Role;
   activeTab: Tab;
   ingestMode: IngestMode;
   pasteText: string;
-  extracting: boolean;
+  busy: boolean;
+  planId: string | null;
   planStatus: PlanStatus;
   reviewed: boolean;
   meds: Medication[];
+  doseId: string | null;
   doseStatus: DoseStatus;
+  voiceSessionId: string | null;
   transcript: TranscriptLine[];
-  micBusy: boolean;
   packet: CarePacket | null;
   events: LedgerEvent[];
   photoDataUrl: string | null;
   photoFile: File | null;
-  extractError: string | null;
+  error: string | null;
 }

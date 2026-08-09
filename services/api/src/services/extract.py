@@ -1,184 +1,252 @@
-import asyncio
+"""Discharge text -> draft medications.
+
+Two paths that both end in the same place:
+
+1. Deterministic parse of the text against fixtures/formulary.json (default).
+2. Sarvam LLM, used only when the deterministic parse finds nothing — it reads
+   spellings and phrasings the alias table does not know.
+
+The LLM only ever answers *which drugs are in this note*. Dose, times, duration
+and criticality come from the locked formulary plus the source line, never from
+the model — a model that reads "7 din baad OPD review" as a 7-day course would
+otherwise corrupt the med graph. See EXTRACT_MODE in config.py.
+
+Neither path can invent a drug outside fixtures/formulary.json, and everything
+returned is a draft a human still has to confirm before activate.
+"""
+
+from __future__ import annotations
+
+import json
 import re
-import time
-from typing import Any, Optional
+from typing import Any
 
-import httpx
+from ..config import (
+    EXTRACT_MODE,
+    SARVAM_API_BASE,
+    SARVAM_API_KEY,
+    SARVAM_MODEL,
+    SARVAM_TIMEOUT_SECONDS,
+)
+from ..models.schemas import Medication
+from .fixtures import formulary_by_name, load_formulary
 
-from ..config import SARVAM_API_BASE, SARVAM_API_KEY
-from ..store import store
-
-DOC_AI_EXTRACT_URL = f"{SARVAM_API_BASE}/doc-ai/v1/job/extract"
-DOC_AI_RESULTS_URL = f"{SARVAM_API_BASE}/doc-ai/v1/job/{{job_id}}/results"
-
-MED_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "medications": {
-            "type": "array",
-            "description": "Every medication listed in the discharge/prescription document",
-            "items": {
-                "type": "object",
-                "description": "One medication entry",
-                "properties": {
-                    "name": {"type": "string", "description": "Drug name as written, with strength if present"},
-                    "dose": {"type": "string", "description": "Dose amount and unit, e.g. '5 mg'"},
-                    "schedule": {"type": "string", "description": "When/how often to take it, e.g. 'night' or 'morning and night with food'"},
-                },
-            },
-        }
-    },
+# Transliterations / brand-ish spellings seen in Indian discharge notes.
+ALIASES: dict[str, str] = {
+    "amlodipine": "amlodipine",
+    "amlodipin": "amlodipine",
+    "amlong": "amlodipine",
+    "amlokind": "amlodipine",
+    "एम्लोडिपिन": "amlodipine",
+    "metformin": "metformin",
+    "metfornin": "metformin",
+    "glycomet": "metformin",
+    "मेटफॉर्मिन": "metformin",
+    "atorvastatin": "atorvastatin",
+    "atorvastin": "atorvastatin",
+    "atorva": "atorvastatin",
+    "storvas": "atorvastatin",
+    "एटोरवास्टेटिन": "atorvastatin",
+    "paracetamol": "paracetamol",
+    "pcm": "paracetamol",
+    "dolo": "paracetamol",
+    "crocin": "paracetamol",
+    "पैरासिटामोल": "paracetamol",
 }
 
-POLL_INTERVAL_S = 1.5
-POLL_TIMEOUT_S = 45
-TERMINAL_STATUSES = {"completed", "partially_completed", "failed", "rejected"}
+MORNING_HINTS = ("subah", "morning", "सुबह", "od morning", "bf", "breakfast")
+NIGHT_HINTS = ("raat", "night", "रात", "hs", "bedtime", "evening", "sham")
+FOOD_HINTS = ("khane ke saath", "with food", "after food", "khana", "pc", "भोजन", "खाने")
+SOS_HINTS = ("sos", "if needed", "bukhar", "prn", "जरूरत")
+
+MORNING_TIME = "08:00"
+NIGHT_TIME = "21:00"
 
 
-class ExtractError(Exception):
-    def __init__(self, code: str, message: str):
-        self.code = code
-        self.message = message
-        super().__init__(message)
+def extract_medications(text: str, source: str = "paste") -> list[Medication]:
+    """Best available extraction. Never raises on LLM failure."""
+    hits: list[dict] = []
+
+    if EXTRACT_MODE != "llm":
+        hits = _extract_via_formulary(text)
+
+    if not hits and EXTRACT_MODE != "deterministic" and SARVAM_API_KEY:
+        hits = _extract_via_sarvam(text) or []
+
+    if not hits and EXTRACT_MODE == "llm":
+        hits = _extract_via_formulary(text)
+
+    return [_to_medication(item, source) for item in hits]
 
 
-def _normalize(s: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", s.lower())
+# ---------------------------------------------------------------- deterministic
 
 
-def _match_formulary(name_text: str) -> Optional[dict]:
-    needle = _normalize(name_text)
-    if not needle:
-        return None
-    for med in store.formulary:
-        if _normalize(med["name_normalized"]) in needle or _normalize(med["name_normalized"]) in _normalize(name_text):
-            return med
-    return None
-
-
-def _build_medication(fixture: dict, source: str, raw_name: str, confidence: float) -> dict:
-    return {
-        **fixture,
-        "name_raw": raw_name or fixture["name_raw"],
-        "source": source,
-        "confidence": round(confidence, 2),
-    }
-
-
-def _fallback_unmatched(raw_name: str, source: str) -> dict:
-    """A drug the OCR/paste text mentions that isn't in our demo formulary.
-    Still surfaced in the med graph (never silently dropped) but flagged with
-    low confidence so the human-confirm step catches it."""
-    slug = _normalize(raw_name)[:24] or "unknown"
-    return {
-        "id": f"med_unmatched_{slug}",
-        "name_raw": raw_name,
-        "name_normalized": slug,
-        "dose": 0,
-        "unit": "mg",
-        "route": "oral",
-        "schedule_text": "Unconfirmed — not in demo formulary",
-        "times": [],
-        "food_rule": "none",
-        "duration_days": None,
-        "criticality": "med",
-        "source": source,
-        "confidence": 0.4,
-    }
-
-
-def extract_from_text(text: str) -> list[dict]:
-    """Paste path: match each formulary drug that appears in the pasted text."""
+def _extract_via_formulary(text: str) -> list[dict]:
+    """Scan the text for known formulary drugs and read their schedule off the line."""
     lowered = text.lower()
-    meds = []
-    for fixture in store.formulary:
-        if _normalize(fixture["name_normalized"]) in _normalize(lowered):
-            meds.append(_build_medication(fixture, "paste", fixture["name_raw"], fixture["confidence"]))
-    return meds
+    hits: list[tuple[int, dict]] = []
+    seen: set[str] = set()
 
-
-async def extract_from_photo(file_bytes: bytes, filename: str, content_type: str) -> list[dict]:
-    """Photo path: real Sarvam Doc AI extract call, polled to completion, then
-    mapped onto the demo formulary for clinical fields (criticality/food rule/route)."""
-    if not SARVAM_API_KEY:
-        raise ExtractError("SARVAM_KEY_MISSING", "SARVAM_API_KEY is not configured on the server")
-
-    headers = {"api-subscription-key": SARVAM_API_KEY}
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            submit = await client.post(
-                DOC_AI_EXTRACT_URL,
-                headers=headers,
-                files={"file": (filename, file_bytes, content_type or "application/octet-stream")},
-                data={
-                    "schema": _schema_json(),
-                    "language": "en-IN",
-                    "output_format": "json",
-                },
-            )
-        except httpx.HTTPError as e:
-            raise ExtractError("SARVAM_UNREACHABLE", f"Could not reach Sarvam Doc AI: {e}") from e
-
-        if submit.status_code >= 400:
-            raise ExtractError("SARVAM_SUBMIT_FAILED", f"Sarvam Doc AI rejected the job: {submit.status_code} {submit.text}")
-
-        job = submit.json()
-        job_id = job.get("job_id")
-        if not job_id:
-            raise ExtractError("SARVAM_BAD_RESPONSE", f"Sarvam Doc AI response had no job_id: {job}")
-
-        result = await _poll_job(client, headers, job_id)
-
-    raw_meds = _pluck_medications(result)
-    meds = []
-    for raw in raw_meds:
-        name = str(raw.get("name") or "").strip()
-        if not name:
+    for alias, normalized in ALIASES.items():
+        idx = lowered.find(alias.lower())
+        if idx == -1 or normalized in seen:
             continue
-        fixture = _match_formulary(name)
-        if fixture:
-            meds.append(_build_medication(fixture, "ocr", name, min(fixture["confidence"], 0.9)))
-        else:
-            meds.append(_fallback_unmatched(name, "ocr"))
-    return meds
+        seen.add(normalized)
+        line = _line_at(text, idx)
+        hits.append((idx, {"name_normalized": normalized, "line": line}))
+
+    hits.sort(key=lambda pair: pair[0])
+    return [item for _, item in hits]
 
 
-async def _poll_job(client: httpx.AsyncClient, headers: dict, job_id: str) -> dict[str, Any]:
-    deadline = time.monotonic() + POLL_TIMEOUT_S
-    url = DOC_AI_RESULTS_URL.format(job_id=job_id)
-    while True:
-        resp = await client.get(url, headers=headers)
-        if resp.status_code == 409:
-            # RESULTS_NOT_READY — job hasn't reached a terminal status yet.
-            if time.monotonic() > deadline:
-                raise ExtractError("SARVAM_TIMEOUT", f"Sarvam Doc AI job {job_id} did not finish within {POLL_TIMEOUT_S}s")
-            await asyncio.sleep(POLL_INTERVAL_S)
+def _line_at(text: str, index: int) -> str:
+    start = text.rfind("\n", 0, index) + 1
+    end = text.find("\n", index)
+    if end == -1:
+        end = len(text)
+    return text[start:end]
+
+
+def _has_hint(low: str, hints: tuple[str, ...]) -> bool:
+    """Whole-word match so short hints like 'hs' or 'pc' do not fire inside words."""
+    return any(
+        re.search(rf"(?<![a-z]){re.escape(h)}(?![a-z])", low) is not None for h in hints
+    )
+
+
+def _schedule_from_line(line: str, base: dict) -> dict:
+    """Override formulary defaults when the source line is explicit."""
+    low = line.lower()
+    times: list[str] = []
+    if _has_hint(low, MORNING_HINTS):
+        times.append(MORNING_TIME)
+    if _has_hint(low, NIGHT_HINTS):
+        times.append(NIGHT_TIME)
+
+    is_sos = _has_hint(low, SOS_HINTS)
+    if is_sos:
+        times = []
+
+    out = dict(base)
+    if times or is_sos:
+        out["times"] = times
+        out["schedule_text"] = _schedule_text(times, is_sos)
+    if _has_hint(low, FOOD_HINTS):
+        out["food_rule"] = "with_food"
+        if out["schedule_text"] and "food" not in out["schedule_text"].lower():
+            out["schedule_text"] = f"{out['schedule_text']} with food"
+    return out
+
+
+def _schedule_text(times: list[str], is_sos: bool) -> str:
+    if is_sos:
+        return "SOS"
+    if times == [MORNING_TIME, NIGHT_TIME]:
+        return "Morning and night"
+    if times == [MORNING_TIME]:
+        return "Morning"
+    if times == [NIGHT_TIME]:
+        return "Night"
+    return ", ".join(times)
+
+
+# ---------------------------------------------------------------------- Sarvam
+
+
+def _extract_via_sarvam(text: str) -> list[dict] | None:
+    """Ask Sarvam *which* formulary drugs appear. Any failure returns None."""
+    allowed = ", ".join(m["name_normalized"] for m in load_formulary())
+    prompt = (
+        "List the home medications named in this Indian hospital discharge note. "
+        "The note mixes English and Hindi (romanised).\n"
+        f"Only use these normalized drug names: {allowed}. "
+        "Never invent a drug that is not in that list. Do not guess dosing.\n"
+        'Reply with JSON only: {"medications": [{"name_normalized": str}]}\n\n'
+        f"NOTE:\n{text}"
+    )
+    try:
+        import httpx
+
+        response = httpx.post(
+            f"{SARVAM_API_BASE}/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {SARVAM_API_KEY}",
+                "api-subscription-key": SARVAM_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": SARVAM_MODEL,
+                "temperature": 0,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You extract medication names. You output JSON only.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            },
+            timeout=SARVAM_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        message = response.json()["choices"][0]["message"]
+        # Reasoning models sometimes leave `content` null and put the answer in
+        # `reasoning_content`.
+        content = message.get("content") or message.get("reasoning_content") or ""
+        parsed = _parse_json_block(content)
+        items = parsed.get("medications") if isinstance(parsed, dict) else None
+        if not items:
+            return None
+    except Exception:  # network, auth, shape drift — fall back silently
+        return None
+
+    known = formulary_by_name()
+    cleaned: list[dict] = []
+    for item in items:
+        name = item.get("name_normalized") if isinstance(item, dict) else item
+        name = str(name or "").strip().lower()
+        name = ALIASES.get(name, name)
+        if name not in known or any(c["name_normalized"] == name for c in cleaned):
+            continue  # outside the locked formulary -> dropped, not invented
+        # Schedule still comes off the source line, exactly like the local path.
+        cleaned.append({"name_normalized": name, "line": _locate_line(text, name)})
+    return cleaned or None
+
+
+def _locate_line(text: str, normalized: str) -> str:
+    """Earliest line in the note mentioning this drug under any known alias."""
+    lowered = text.lower()
+    best = -1
+    for alias, canonical in ALIASES.items():
+        if canonical != normalized:
             continue
-        if resp.status_code >= 400:
-            raise ExtractError("SARVAM_RESULTS_FAILED", f"Sarvam Doc AI results error: {resp.status_code} {resp.text}")
-        body = resp.json()
-        status = body.get("status")
-        if status in TERMINAL_STATUSES:
-            if status in ("failed", "rejected"):
-                raise ExtractError("SARVAM_JOB_FAILED", f"Sarvam Doc AI job {status}: {body}")
-            return body
-        if time.monotonic() > deadline:
-            raise ExtractError("SARVAM_TIMEOUT", f"Sarvam Doc AI job {job_id} did not finish within {POLL_TIMEOUT_S}s")
-        await asyncio.sleep(POLL_INTERVAL_S)
+        idx = lowered.find(alias.lower())
+        if idx != -1 and (best == -1 or idx < best):
+            best = idx
+    return _line_at(text, best) if best != -1 else ""
 
 
-def _pluck_medications(result_body: dict) -> list[dict]:
-    result = result_body.get("result") or result_body.get("results") or {}
-    if isinstance(result, list) and result:
-        result = result[0].get("result", result[0]) if isinstance(result[0], dict) else {}
-    if isinstance(result, dict):
-        meds = result.get("medications")
-        if isinstance(meds, list):
-            return meds
-    return []
+def _parse_json_block(content: str) -> Any:
+    content = (content or "").strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", content, re.DOTALL)
+    if fenced:
+        content = fenced.group(1).strip()
+    start, end = content.find("{"), content.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError("no JSON object in model output")
+    return json.loads(content[start : end + 1])
 
 
-def _schema_json() -> str:
-    import json
+# ------------------------------------------------------------------ assembling
 
-    return json.dumps(MED_SCHEMA)
+
+def _to_medication(item: dict, source: str) -> Medication:
+    """Formulary row + whatever the source line overrides. Identical for both paths."""
+    base = dict(formulary_by_name()[item["name_normalized"]])
+    base["source"] = source
+
+    line = item.get("line") or ""
+    if line:
+        base = _schedule_from_line(line, base)
+
+    return Medication(**base)

@@ -20,7 +20,7 @@
 ## You own (edit freely)
 
 ```text
-apps/web/**
+cockpit/**
 ```
 
 ## You do not own
@@ -38,15 +38,15 @@ services/api/src/voice/** # Jyotir; you only host mic UI shell
 | Item | Value |
 | --- | --- |
 | Branch | `feat/web` |
-| Paths | `apps/web/**` |
+| Paths | `cockpit/**` |
 | API URL | `NEXT_PUBLIC_API_URL=http://localhost:8000` |
 
 ```bash
 git checkout main && git pull
 git checkout -b feat/web
-cd apps/web
+cd cockpit
 # npx create-next-app .  (if not scaffolded) — TypeScript, App Router, no extra junk
-git add apps/web
+git add cockpit
 git commit -m "feat(web): cockpit graph confirm ledger packet"
 git push -u origin feat/web
 ```
@@ -110,7 +110,7 @@ Not neon consumer gimmick.
 
 ### Hour 0–1
 
-- [ ] Scaffold Next.js in `apps/web`
+- [ ] Scaffold Next.js in `cockpit`
 - [ ] Three panels empty with titles
 - [ ] Env `NEXT_PUBLIC_API_URL`
 - [ ] Fetch `/health` and show green/red
@@ -152,7 +152,7 @@ MISSION
 Build a single-page Next.js demo cockpit that drives the DAWA API through the paste → confirm → activate → evening dose → packet/ledger path.
 
 OWNED PATHS
-- apps/web/** only
+- cockpit/** only
 
 READ FIRST
 - docs/API_CONTRACT.md
@@ -209,7 +209,7 @@ Manual click script (memorize):
 
 ## Merge checklist
 
-- [ ] `apps/web` runs with `npm run dev`
+- [ ] `cockpit` runs with `npm run dev`
 - [ ] README with install/run
 - [ ] No hardcoded final packet on main happy path
 - [ ] Env example documented

@@ -1,92 +1,105 @@
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from __future__ import annotations
 
-from ..models import Plan
-from ..services.extract import ExtractError, extract_from_photo, extract_from_text
-from ..store import store
+from fastapi import APIRouter, Request, UploadFile
+from pydantic import ValidationError
 
-router = APIRouter()
+from ..errors import ApiError
+from ..models.schemas import (
+    ActivateResponse,
+    ExtractRequest,
+    ExtractResponse,
+    Plan,
+    PlanPatch,
+)
+from ..services import ledger, plans
+from ..services.document_extract import extract_document
+from ..services.extract import extract_medications
+from ..services.followup import extract_follow_up
 
-# Sarvam Doc AI only accepts PDF/JPEG/PNG.
-SUPPORTED_CONTENT_TYPES = {"image/jpeg", "image/png", "application/pdf"}
+router = APIRouter(tags=["plans"])
 
 
-def _error(code: str, message: str, status: int) -> HTTPException:
-    return HTTPException(status_code=status, detail={"error": {"code": code, "message": message}})
-
-
-@router.post("/plans/extract")
-async def extract_plan(
-    source: str = Form(...),
-    text: str | None = Form(None),
-    file: UploadFile | None = File(None),
-):
-    if source not in ("paste", "ocr"):
-        raise _error("BAD_SOURCE", "source must be 'paste' or 'ocr'", 400)
-
-    if source == "paste":
-        if not text or not text.strip():
-            raise _error("MISSING_TEXT", "text is required for source=paste", 400)
-        medications = extract_from_text(text)
-    else:
-        if not file:
-            raise _error("MISSING_FILE", "file is required for source=ocr", 400)
-        if file.content_type not in SUPPORTED_CONTENT_TYPES:
-            raise _error(
-                "UNSUPPORTED_FILE_TYPE",
-                f"'{file.content_type}' is not supported — send a JPEG, PNG, or PDF.",
-                400,
+@router.post("/plans/extract", response_model=ExtractResponse)
+async def extract(request: Request) -> dict:
+    """Accept contract JSON for paste and multipart for the optional photo path."""
+    content_type = request.headers.get("content-type", "")
+    text = ""
+    source = "paste"
+    if content_type.startswith(("multipart/form-data", "application/x-www-form-urlencoded")):
+        form = await request.form()
+        source = str(form.get("source") or "")
+        if source == "ocr":
+            upload = form.get("file")
+            if not isinstance(upload, UploadFile):
+                raise ApiError("MISSING_FILE", "file is required for source=ocr")
+            if upload.content_type not in {"image/jpeg", "image/png", "application/pdf"}:
+                raise ApiError("UNSUPPORTED_FILE_TYPE", "Send a JPEG, PNG, or PDF")
+            medications = await extract_document(
+                await upload.read(),
+                upload.filename or "prescription",
+                upload.content_type,
             )
-        content = await file.read()
+        elif source == "paste":
+            text = str(form.get("text") or "")
+            medications = extract_medications(text, source=source)
+        else:
+            raise ApiError("BAD_SOURCE", "source must be 'paste' or 'ocr'")
+    else:
         try:
-            medications = await extract_from_photo(content, file.filename or "upload", file.content_type or "")
-        except ExtractError as e:
-            raise _error(e.code, e.message, 502) from e
+            body = ExtractRequest.model_validate(await request.json())
+        except (ValidationError, ValueError) as exc:
+            raise ApiError("INVALID_REQUEST", "text and source are required", status_code=422) from exc
+        source = body.source
+        text = body.text
+        medications = extract_medications(text, source=source)
 
-    plan_id = store.next_plan_id()
-    plan = Plan(
-        id=plan_id,
-        status="draft",
-        patient_id=store.people["patient"]["id"],
-        caregiver_id=store.people["caregiver"]["id"],
-        medications=medications,
+    follow_up = extract_follow_up(text, source=source) if text else None
+    plan = plans.create_plan(medications, follow_up=follow_up)
+    ledger.append(
+        "plan_created",
+        plan_id=plan.id,
+        payload={
+            "source": source,
+            "medication_count": len(medications),
+            "medication_ids": [m.id for m in medications],
+            "follow_up": follow_up.model_dump() if follow_up else None,
+        },
     )
-    store.plans[plan_id] = plan
-    store.events.append(
-        {
-            "id": store.next_event_id(),
-            "type": "plan_created",
-            "plan_id": plan_id,
-            "payload": {"source": source, "count": len(medications)},
-        }
+    return {
+        "plan_id": plan.id,
+        "status": plan.status,
+        "medications": medications,
+        "follow_up": follow_up,
+    }
+
+
+@router.get("/plans/{plan_id}", response_model=Plan)
+def get_plan(plan_id: str) -> Plan:
+    return plans.get_plan(plan_id)
+
+
+@router.patch("/plans/{plan_id}", response_model=Plan)
+def patch_plan(plan_id: str, body: PlanPatch) -> Plan:
+    return plans.patch_medications(
+        plan_id,
+        body.medications,
+        follow_up=body.follow_up,
+        set_follow_up="follow_up" in body.model_fields_set,
     )
-    return {"plan_id": plan_id, "status": plan.status, "medications": medications}
 
 
-@router.get("/plans/{plan_id}")
-def get_plan(plan_id: str):
-    plan = store.plans.get(plan_id)
-    if not plan:
-        raise _error("PLAN_NOT_FOUND", f"No plan {plan_id}", 404)
-    return plan
-
-
-@router.patch("/plans/{plan_id}")
-def patch_plan(plan_id: str, body: dict):
-    plan = store.plans.get(plan_id)
-    if not plan:
-        raise _error("PLAN_NOT_FOUND", f"No plan {plan_id}", 404)
-    medications = body.get("medications")
-    if medications is not None:
-        plan.medications = medications
-    return plan
-
-
-@router.post("/plans/{plan_id}/activate")
-def activate_plan(plan_id: str):
-    plan = store.plans.get(plan_id)
-    if not plan:
-        raise _error("PLAN_NOT_FOUND", f"No plan {plan_id}", 404)
-    plan.status = "active"
-    event_id = store.next_event_id()
-    store.events.append({"id": event_id, "type": "plan_activated", "plan_id": plan_id, "payload": {}})
-    return {"plan_id": plan_id, "status": plan.status, "event_id": event_id}
+@router.post("/plans/{plan_id}/activate", response_model=ActivateResponse)
+def activate(plan_id: str) -> dict:
+    plan = plans.activate_plan(plan_id)
+    event = ledger.append(
+        "plan_activated",
+        plan_id=plan.id,
+        payload={
+            "medication_ids": [m.id for m in plan.medications],
+            "confirmed_by": "human",
+            # Carried so a reminder scheduler can read the due date straight off
+            # the ledger without re-reading the plan.
+            "follow_up_due_at": plan.follow_up.due_at if plan.follow_up else None,
+        },
+    )
+    return {"plan_id": plan.id, "status": plan.status, "event_id": event.id}
