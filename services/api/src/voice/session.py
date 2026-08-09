@@ -45,6 +45,7 @@ class DoseVoiceSession:
     reask_count: int = 0
     outcome: Classification = field(default_factory=Classification)
     double_dose_refused: bool = False
+    policy_check: dict | None = None  # response from Barkha's /policy/check, when reachable
     needs_human: bool = False
     complete_posted: bool = False
     complete_error: str | None = None

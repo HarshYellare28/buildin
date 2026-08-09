@@ -42,6 +42,13 @@ _DOUBLE_DOSE = re.compile(
     re.IGNORECASE,
 )
 
+# "haan le li, lekin pet mein jalan hai" -> "pet mein jalan hai". The whole utterance would be
+# read back to the patient verbatim and stored as patient_reported, which the contract shows as
+# the complaint alone ("pet mein jalan").
+_CLAUSE_SPLIT = re.compile(
+    r"[,;।]|\blekin\b|\bmagar\b|\bpar\b|\bbut\b|लेकिन|मगर", re.IGNORECASE
+)
+
 _SYMPTOM_MAP: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"jalan|jal\s*rah|jalna|acidity|जलन|जल\s*रह", re.IGNORECASE), "abdominal_burning"),
     (re.compile(r"ulti|ultee|उल्टी", re.IGNORECASE), "vomiting"),
@@ -74,6 +81,14 @@ def _normalize_symptom(text: str) -> str | None:
     return None
 
 
+def _complaint_clause(text: str) -> str:
+    """The patient's own words for the complaint only — never the whole sentence."""
+    for part in _CLAUSE_SPLIT.split(text):
+        if part and _SIDE_EFFECT.search(part):
+            return part.strip(" ।.,!?")
+    return text.strip(" ।.,!?")
+
+
 def classify_regex(text: str) -> Classification:
     result = Classification()
     if not text.strip():
@@ -99,7 +114,7 @@ def classify_regex(text: str) -> Classification:
 
     if _SIDE_EFFECT.search(text):
         result.exception_type = "side_effect"
-        result.patient_reported = text.strip()
+        result.patient_reported = _complaint_clause(text)
         result.normalized_symptom = _normalize_symptom(text)
 
     return result
@@ -124,11 +139,11 @@ def classify(text: str) -> Classification:
 
     if result.exception_type == "none" and llm.get("exception_type") == "side_effect":
         result.exception_type = "side_effect"
-        result.patient_reported = llm.get("patient_reported") or text.strip()
+        result.patient_reported = llm.get("patient_reported") or _complaint_clause(text)
 
     if result.has_side_effect:
         result.normalized_symptom = result.normalized_symptom or llm.get("normalized_symptom")
-        result.patient_reported = result.patient_reported or text.strip()
+        result.patient_reported = result.patient_reported or _complaint_clause(text)
 
     # A refusal flag can be raised by either layer, never cleared by the model.
     result.double_dose_request = result.double_dose_request or bool(llm.get("double_dose_request"))

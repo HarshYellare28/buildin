@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DAWA voice — dev harness</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.1rem; letter-spacing: .04em; text-transform: uppercase; opacity: .7; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: 6px; border: 1px solid currentColor;
+           background: transparent; color: inherit; cursor: pointer; }
+  button[disabled] { opacity: .4; cursor: not-allowed; }
+  #rec.recording { background: #c0392b; color: #fff; border-color: #c0392b; }
+  .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
+  .turn { padding: .5rem .7rem; border-radius: 6px; margin: .35rem 0; }
+  .agent { background: rgba(127,127,127,.14); }
+  .patient { background: rgba(46,134,222,.16); }
+  pre { background: rgba(127,127,127,.12); padding: .75rem; border-radius: 6px; overflow-x: auto; font-size: 13px; }
+  input { font: inherit; padding: .5rem; flex: 1; min-width: 14rem; border-radius: 6px;
+          border: 1px solid rgba(127,127,127,.5); background: transparent; color: inherit; }
+  .warn { font-size: 13px; opacity: .75; }
+</style>
+</head>
+<body>
+<h1>DAWA voice — dev harness</h1>
+<p class="warn">Not the product UI. Integration testing only, per team/Jyotir.md rule 10.</p>
+
+<div class="row">
+  <button id="start">Start dose session</button>
+  <button id="rec" disabled>Hold to talk</button>
+  <span id="state"></span>
+</div>
+
+<div class="row">
+  <input id="typed" placeholder="Typed fallback (disaster only) — e.g. haan le li, lekin pet mein jalan hai" />
+  <button id="send" disabled>Send text</button>
+</div>
+
+<div id="log"></div>
+<h3>Complete payload</h3>
+<pre id="payload">—</pre>
+<audio id="player" autoplay></audio>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let sessionId = null, recorder = null, chunks = [];
+
+const MED = {
+  id: "med_amlodipine", name_raw: "Amlodipine 5mg", name_normalized: "amlodipine",
+  dose: 5, unit: "mg", schedule_text: "Night", times: ["21:00"], criticality: "high"
+};
+
+function log(role, text) {
+  if (!text) return;
+  const div = document.createElement("div");
+  div.className = "turn " + role;
+  div.textContent = (role === "agent" ? "DAWA: " : "Patient: ") + text;
+  $("log").appendChild(div);
+}
+
+function render(data) {
+  $("state").textContent = data.state + (data.needs_human ? " (needs human)" : "");
+  if (data.transcript) log("patient", data.transcript);
+  log("agent", data.assistant_text);
+  if (data.tts_error) log("agent", "[TTS error] " + data.tts_error);
+  if (data.audio_b64) $("player").src = "data:audio/wav;base64," + data.audio_b64;
+  $("payload").textContent = JSON.stringify({
+    complete_payload: data.complete_payload,
+    complete_posted: data.complete_posted,
+    complete_error: data.complete_error,
+    double_dose_refused: data.double_dose_refused,
+    must_escalate: data.must_escalate
+  }, null, 2);
+}
+
+$("start").onclick = async () => {
+  $("log").innerHTML = "";
+  const res = await fetch("/voice/sessions", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dose_id: "dose_dev_1", medication: MED })
+  });
+  const data = await res.json();
+  sessionId = data.session_id;
+  $("rec").disabled = false; $("send").disabled = false;
+  render(data);
+};
+
+async function sendAudio(blob) {
+  const form = new FormData();
+  form.append("audio", blob, "turn.webm");
+  const res = await fetch(`/voice/sessions/${sessionId}/turn`, { method: "POST", body: form });
+  const data = await res.json();
+  if (!res.ok) { log("agent", "[error] " + JSON.stringify(data)); return; }
+  render(data);
+}
+
+$("rec").onmousedown = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+  chunks = [];
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  recorder.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    sendAudio(new Blob(chunks, { type: "audio/webm" }));
+  };
+  recorder.start();
+  $("rec").classList.add("recording");
+};
+
+$("rec").onmouseup = () => {
+  if (recorder && recorder.state === "recording") recorder.stop();
+  $("rec").classList.remove("recording");
+};
+
+$("send").onclick = async () => {
+  const text = $("typed").value.trim();
+  if (!text) return;
+  $("typed").value = "";
+  const res = await fetch(`/voice/sessions/${sessionId}/turn-text`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_text: text })
+  });
+  render(await res.json());
+};
+</script>
+</body>
+</html>
