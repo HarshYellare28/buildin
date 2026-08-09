@@ -1,6 +1,7 @@
 # DAWA — Features
 
-**Execution truth for the hackathon:** [docs/MVP.md](docs/MVP.md)
+**Execution truth for the hackathon:** [docs/MVP.md](docs/MVP.md)  
+**Pivot:** [docs/PIVOT.md](docs/PIVOT.md) — patient = calling agent only, **no patient UI**.
 
 This file remains the product feature map.
 For the under-8-hour build, only **SHIP** items are in scope.
@@ -9,17 +10,18 @@ For the under-8-hour build, only **SHIP** items are in scope.
 
 ## SHIP (8h MVP)
 
-1. **Rx ingest (paste-first)** — paste discharge text; photo optional stretch.
+1. **Rx ingest (paste-first)** — caregiver/operator cockpit; photo optional stretch.
 2. **Med graph extraction** — 3–5 meds into draft graph (demo formulary).
-3. **Human confirm step** — editable review; activate blocked until confirm.
-4. **Role linking** — one patient + one caregiver, languages locked.
-5. **Demo dose trigger** — jump to evening dose (not full cron).
-6. **Live dose call** — STT → policy-bound LLM → TTS (in-app OK).
-7. **Adherence verification** — conversational taken path.
+3. **Human confirm step** — caregiver reviews; activate blocked until confirm.
+4. **Role linking** — patient (phone + language) + caregiver (cockpit).
+5. **Dose call trigger** — caregiver clicks call for evening dose.
+6. **Patient calling agent** — Sarvam outbound voice agent; **no patient app**.
+7. **Adherence on call** — conversational taken path on the phone.
 8. **Exception (one path)** — side effect: pet mein jalan.
 9. **Policy kernel** — no invented Rx; no silent stop high-critical; refuse double dose; escalate side effect.
-10. **Caregiver packet** — structured English alert card from API.
-11. **Event ledger** — timeline of dose events and system actions.
+10. **Caregiver packet** — structured English alert card on cockpit.
+11. **Event ledger** — timeline on cockpit.
+12. **Webhook ingest** — call outcome → our state (not only Sarvam dashboard).
 
 ## Stretch (after two green E2Es)
 

@@ -1,16 +1,19 @@
 # DAWA — Demo script (~5 minutes)
 
+**Pivot:** patient has **no UI**. Only the **phone**. Big screen = caregiver cockpit.
+
 Cast:
 
-- **Patient:** teammate speaking Hindi (elder persona: Lakshmi)
-- **Caregiver:** teammate/judge in English (daughter Ananya in Mumbai)
-- **Operator:** Arnav (minimal talk)
+- **Patient:** teammate with a **phone** (elder persona: Lakshmi) — answers the call only
+- **Caregiver:** teammate/judge in English (daughter Ananya) — watches cockpit
+- **Operator:** Arnav (minimal talk) — clicks through cockpit
 
 Props:
 
-- Fixture discharge text on screen (messy Hindi/English mix)
-- Laptop: cockpit (med graph + ledger + caregiver card)
-- Mic for live patient voice
+- Fixture discharge text on caregiver screen
+- Laptop/projector: **caregiver cockpit only** (med graph + ledger + packet)
+- Patient phone with working number for outbound agent
+- No patient laptop UI
 
 ---
 
@@ -18,17 +21,17 @@ Props:
 
 | Time | Action | System must show |
 | --- | --- | --- |
-| 0:00–0:20 | Hook: chaotic family WhatsApp / verbal chaos. “This is how post-discharge India runs.” | Optional static slide |
-| 0:20–0:40 | One breath pitch: execution OS, not companion. | Title: DAWA |
-| 0:40–1:20 | Paste discharge fixture. Extract runs. | Draft med graph 3–5 meds |
-| 1:20–1:50 | Human confirm. Activate. Caregiver already linked. | Status = active |
-| 1:50–2:00 | Jump clock to evening dose. | Dose session starts |
-| 2:00–2:50 | Live call in Hindi: confirm Amlodipine. Patient: took it, pet mein jalan. | Real STT/TTS |
-| 2:50–3:20 | Exception protocol. No new Rx. Escalate. | Policy actions visible if possible |
-| 3:20–3:50 | Caregiver card in English. | Card from API |
-| 3:50–4:20 | Show ledger trail. | Events list |
+| 0:00–0:20 | Hook: WhatsApp chaos. “This is how post-discharge India runs.” | Optional slide |
+| 0:20–0:40 | Pitch: execution OS. Patient never opens an app — we call them. | Title: DAWA |
+| 0:40–1:20 | Caregiver: paste discharge. Extract. | Draft med graph 3–5 meds |
+| 1:20–1:50 | Caregiver confirms. Activate. | Status = active |
+| 1:50–2:00 | Click **Call Lakshmi** (evening dose). | Calling… on cockpit |
+| 2:00–2:50 | Patient phone rings. Hindi agent. Taken + pet mein jalan. | Live phone audio |
+| 2:50–3:20 | Call ends. Webhook. Policy: no new Rx, escalate. | Cockpit updates |
+| 3:20–3:50 | English caregiver packet. | Card from API |
+| 3:50–4:20 | Event ledger trail. | Events list |
 | 4:20–4:50 | Optional stretch only if solid. | Else skip |
-| 4:50–5:10 | Closing lines on screen. Stop talking. | See below |
+| 4:50–5:10 | Closing lines. Stop talking. | See below |
 
 ---
 

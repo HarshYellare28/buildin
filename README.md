@@ -7,19 +7,26 @@ Tagline: Hospitals write prescriptions. Families guess. DAWA runs the meds.
 Hackathon constraint: **under 8 hours, 4 people.**
 Read this file, then your personal playbook in `team/`.
 
+### Product pivot (locked)
+
+- **Patient:** phone only via **Sarvam calling agents**. **No patient UI.**
+- **Caregiver / operator:** full cockpit (plan, call trigger, packets, ledger).
+- Details: [docs/PIVOT.md](docs/PIVOT.md)
+
 ---
 
 ## Team map (locked)
 
 | Person | Role | Own these paths | Playbook |
 | --- | --- | --- | --- |
-| **Arnav** | Product, demo, fixtures, merge gate, integration | `docs/`, `fixtures/`, `scripts/`, `team/`, root README | [team/Arnav.md](team/Arnav.md) |
-| **Barkha** | Backend, med graph, policy, APIs | `services/api/` | [team/Barkha.md](team/Barkha.md) |
-| **Jyotir** | Voice: Sarvam STT → policy LLM → TTS | `services/api/src/voice/`, voice client under web if needed | [team/Jyotir.md](team/Jyotir.md) |
-| **Harsh** | Frontend cockpit UI | `apps/web/` | [team/Harsh.md](team/Harsh.md) |
+| **Arnav** | Product, demo, fixtures, merge gate, agent script | `docs/`, `fixtures/`, `scripts/`, `team/` | [team/Arnav.md](team/Arnav.md) |
+| **Barkha** | Backend, med graph, policy, **call webhook** | `services/api/` | [team/Barkha.md](team/Barkha.md) |
+| **Jyotir** | **Sarvam calling agent** (patient voice only) | agent config + call trigger glue | [team/Jyotir.md](team/Jyotir.md) |
+| **Harsh** | **Caregiver cockpit only** (no patient screens) | `apps/web/` | [team/Harsh.md](team/Harsh.md) |
 
 Shared contracts (everyone reads, nobody freelances):
 
+- [docs/PIVOT.md](docs/PIVOT.md) — patient = call only
 - [docs/MVP.md](docs/MVP.md) — what ships, what is cut
 - [docs/API_CONTRACT.md](docs/API_CONTRACT.md) — endpoints + JSON shapes
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — second-by-second demo
@@ -54,7 +61,7 @@ buildin/                      # git repository root
 
 ## Win condition (one sentence)
 
-Paste Rx → confirm med graph → live Indic dose session → patient reports side effect → **caregiver English card + ledger update without hand-editing the card.**
+Caregiver cockpit activates plan → **patient’s phone rings** (calling agent) → taken + side effect on call → **caregiver English card + ledger update** (no patient UI, no hand-edited card).
 
 If that path works twice in a row, you are demo-ready.
 Everything else is stretch or noise.
