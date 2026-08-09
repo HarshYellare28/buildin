@@ -23,9 +23,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import tempfile
 import time
+import zipfile
+from pathlib import Path
 
 import httpx
+from sarvamai import SarvamAI
 
 from ..config import (
     SARVAM_API_BASE,
@@ -137,33 +141,91 @@ def doc_ai_extract(
     language_code: str = "en-IN",
     timeout: float = DOC_AI_POLL_TIMEOUT_SECONDS,
 ) -> dict:
-    """Submit a page to Doc AI and poll until the job reaches a terminal status.
+    """Digitise a page with Sarvam Vision and return its OCR text.
 
-    Doc AI is a job API, not a request/response one: the extract call returns a
-    job_id and the results endpoint 409s with RESULTS_NOT_READY until the job
-    finishes. Returns the completed result body.
+    Sarvam retired the legacy schema-extraction `/doc-ai/v1/job/extract`
+    endpoint. The supported API is now a create → upload → start → poll →
+    download job. Medication structure is deliberately recovered later by
+    DAWA's locked formulary parser, not trusted directly from OCR.
     """
     _require_key("doc-ai")
     if not file_bytes:
         raise SarvamError("doc-ai: empty file")
+    del schema, content_type  # structure comes from the locked parser after OCR
+    started = time.monotonic()
+    safe_name = Path(filename).name or "document.jpg"
+    try:
+        with tempfile.TemporaryDirectory(prefix="dawa-doc-") as temp_dir:
+            input_path = Path(temp_dir) / safe_name
+            output_path = Path(temp_dir) / "output.zip"
+            input_path.write_bytes(file_bytes)
 
-    submitted = _post(
-        "doc-ai/submit",
-        f"{SARVAM_API_BASE}/doc-ai/v1/job/extract",
-        headers=_headers(json_body=False),
-        files={"file": (filename, file_bytes, content_type or "application/octet-stream")},
-        data={
-            "schema": json.dumps(schema),
-            "language": language_code,
-            "output_format": "json",
-        },
-        timeout=SARVAM_TIMEOUT_SECONDS,
+            client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
+            job = client.document_intelligence.create_job(
+                language=language_code,
+                output_format="md",
+            )
+            job.upload_file(str(input_path))
+            job.start()
+            status = job.wait_until_complete(
+                poll_interval=DOC_AI_POLL_INTERVAL_SECONDS,
+                timeout=timeout,
+            )
+            if status.job_state not in {"Completed", "PartiallyCompleted"}:
+                detail = getattr(status, "error_message", "") or status.job_state
+                raise SarvamError(f"doc-ai: job {status.job_state}: {detail}")
+            job.download_output(str(output_path))
+            text = _digitization_text(output_path)
+    except SarvamError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "sarvam doc-digitization FAILED in %.0fms: %s",
+            (time.monotonic() - started) * 1000,
+            exc,
+        )
+        raise SarvamError(f"doc-ai: {exc}") from exc
+
+    if not text.strip():
+        raise SarvamError("doc-ai: completed job returned no readable text")
+    logger.info(
+        "sarvam doc-digitization ok in %.0fms (%d chars)",
+        (time.monotonic() - started) * 1000,
+        len(text),
     )
-    job_id = submitted.get("job_id")
-    if not job_id:
-        raise SarvamError(f"doc-ai: response had no job_id: {str(submitted)[:200]}")
+    return {"status": "completed", "ocr_text": text}
 
-    return _doc_ai_poll(job_id, timeout)
+
+def _digitization_text(output_path: Path) -> str:
+    """Read Markdown from Sarvam's output ZIP, with a plain-text fallback."""
+    try:
+        with zipfile.ZipFile(output_path) as archive:
+            markdown = [name for name in archive.namelist() if name.lower().endswith(".md")]
+            if markdown:
+                return "\n".join(
+                    archive.read(name).decode("utf-8", errors="replace") for name in markdown
+                )
+            json_files = [name for name in archive.namelist() if name.lower().endswith(".json")]
+            chunks: list[str] = []
+            for name in json_files:
+                value = json.loads(archive.read(name).decode("utf-8", errors="replace"))
+                chunks.extend(_text_values(value))
+            return "\n".join(chunks)
+    except zipfile.BadZipFile:
+        return output_path.read_text(encoding="utf-8", errors="replace")
+
+
+def _text_values(value: object) -> list[str]:
+    if isinstance(value, dict):
+        direct = [
+            str(child)
+            for key, child in value.items()
+            if key.lower() in {"text", "content", "markdown"} and isinstance(child, str)
+        ]
+        return direct or [text for child in value.values() for text in _text_values(child)]
+    if isinstance(value, list):
+        return [text for child in value for text in _text_values(child)]
+    return []
 
 
 def _doc_ai_poll(job_id: str, timeout: float) -> dict:

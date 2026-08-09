@@ -379,6 +379,15 @@ def extract_from_document(file_bytes: bytes, filename: str, content_type: str) -
     that row. A name that matches nothing is dropped and logged.
     """
     result = sarvam.doc_ai_extract(file_bytes, filename, content_type, _DOC_SCHEMA)
+    ocr_text = result.get("ocr_text") if isinstance(result, dict) else None
+    if isinstance(ocr_text, str) and ocr_text.strip():
+        medications = extract_medications(ocr_text, source="ocr")
+        logger.info(
+            "extract(ocr): digitized text -> %d med(s): %s",
+            len(medications),
+            ", ".join(med.name_normalized for med in medications) or "-",
+        )
+        return medications
     rows = _pluck_medications(result)
     if not rows:
         logger.warning("extract(ocr): Doc AI returned no medication rows")

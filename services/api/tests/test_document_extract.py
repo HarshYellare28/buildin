@@ -65,3 +65,20 @@ def test_multipart_ocr_accepts_starlette_upload(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["medications"][0]["source"] == "ocr"
+
+
+def test_current_digitization_text_is_parsed_through_locked_formulary(monkeypatch):
+    monkeypatch.setattr(
+        extract.sarvam,
+        "doc_ai_extract",
+        lambda *args, **kwargs: {
+            "status": "completed",
+            "ocr_text": "Amlodipine 5 mg roj raat ko. Metformin 500 mg khane ke saath raat ko.",
+        },
+    )
+
+    medications = extract.extract_from_document(b"fake-image", "prescription.png", "image/png")
+
+    assert [med.name_normalized for med in medications] == ["amlodipine", "metformin"]
+    assert medications[0].source == "ocr"
+    assert medications[1].food_rule == "with_food"

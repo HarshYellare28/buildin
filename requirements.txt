@@ -13,6 +13,8 @@ python-dotenv>=1.0
 pydantic>=2.7
 # Required by /plans/extract — the cockpit posts multipart/form-data.
 python-multipart>=0.0.20
+# Current Sarvam Document Digitization job client (the legacy /doc-ai endpoint is retired).
+sarvamai>=0.1.30
 
 # Tests
 pytest>=8.0
