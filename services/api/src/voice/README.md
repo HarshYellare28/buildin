@@ -54,9 +54,9 @@ All optional except the key; defaults are in `config.py`.
 | `SARVAM_STT_MODEL` | `saaras:v3` | |
 | `SARVAM_TTS_MODEL` | `bulbul:v3` | |
 | `SARVAM_TTS_SPEAKER` | `ritu` | Female voice — the templates use feminine forms (`rahi hoon`) |
-| `SARVAM_LLM_MODEL` | `sarvam-105b` | `sarvam-m` is deprecated by Sarvam |
+| `SARVAM_LLM_MODEL` | `sarvam-105b-conversations` | `sarvam-m` is deprecated; plain `sarvam-105b` reasons for ~10s |
 | `DEMO_PATIENT_LANG` | `hi-IN` | |
-| `DAWA_API_URL` | `http://localhost:8000` | Barkha's API |
+| `DAWA_API_URL` | `http://127.0.0.1:8000` | Barkha's API. Keep the IP form — see Latency |
 | `VOICE_LLM_CLASSIFY` | `1` | Set `0` to run regex-only if the LLM is flaky on demo day |
 | `VOICE_LLM_TIMEOUT` | `8` | Short on purpose — a slow classifier must not stall a live call |
 
@@ -117,16 +117,45 @@ Every response carries `assistant_text`, `audio_b64` (WAV, play as `data:audio/w
 
 ---
 
+## Latency
+
+Every `/turn` response carries `timings_ms`. Watch it during rehearsal — ">8s per turn" is a
+stated lose condition in `docs/WIN_LOSE_TEST.md`.
+
+Measured on a real audio turn (14s WAV in, full readback out):
+
+| Stage | Now | Note |
+| --- | --- | --- |
+| `stt` | ~0.5s | Saaras, pooled connection |
+| `dialogue` | ~2.0s | **Entirely the failed POST to Barkha's absent API.** ~0ms once it exists |
+| `tts` | ~5.8s | Bulbul. Scales with *text length*, not codec or sample rate |
+| **total** | **~8.0s** | → **~6.3s** once the backend is up |
+
+Two things learned the hard way, so nobody re-derives them:
+
+- **Codec and sample rate do not affect TTS latency.** wav/mp3 at 16k/24k all generated the same
+  200-char line in 6.2–6.3s. Only length matters: 198 chars → 6.2s, 154 → 4.5s, 112 → 4.2s.
+  If a turn needs to be faster, shorten the line in `prompts.py`; nothing else moves the needle.
+- **`DAWA_API_URL` must be `127.0.0.1`, not `localhost`.** httpx applies its connect timeout per
+  address family, so `localhost` burns a wasted IPv6 attempt before IPv4 when the backend is down
+  — 4.6s of dead air inside a live call.
+
 ## Status
 
-| Verified live | |
+| Verified live against Sarvam | |
 | --- | --- |
-| Dialogue reaches `CONFIRM_READBACK` with the contract payload | ✅ over HTTP |
+| Bulbul TTS + Saaras STT round-trip (`verify_sarvam.py`) | ✅ |
+| Full audio turn: WAV → STT → dialogue → TTS → contract payload | ✅ |
+| Real STT output classifies to `taken` / `side_effect` / `abdominal_burning` | ✅ |
 | Devanagari **and** Latin transcripts classify identically | ✅ |
 | Double-dose refusal; never recorded as a dose taken | ✅ |
 | Mumble → re-asks exactly once → hands to human | ✅ |
-| Sarvam STT / TTS round-trip | see `verify_sarvam.py` |
+| LLM classifier returns valid JSON (`sarvam-105b-conversations`, ~3.4s) | ✅ |
 
-**Not yet verified:** `POST /doses/{dose_id}/complete` — Barkha's endpoint does not exist yet, so
-the write path returns `complete_posted: false` with the connection error surfaced on the session.
-The call itself still completes; the payload is correct and waiting.
+Saaras transcribes the demo line as `हाँ लीली, लेकिन पेट में जलन हो रही है।` — note it renders
+"le li" as the single word लीली, and spells jalan as both जलन and जलान across runs. The regexes
+cover all of it; do not "tidy" them without re-running `verify_sarvam.py`.
+
+**Not verified:** `POST /doses/{dose_id}/complete` — Barkha's endpoint does not exist yet, so the
+write path returns `complete_posted: false` with the connection error on the session. The call
+still completes and the payload is correct and waiting.

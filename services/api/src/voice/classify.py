@@ -30,10 +30,15 @@ _NEG_TAKE = re.compile(
     re.IGNORECASE,
 )
 
+# Saaras transcribes "jalan" as जलान as often as जलन, so burning patterns tolerate the extra
+# vowel in both scripts. Getting this wrong downgrades the demo's abdominal_burning to
+# abdominal_pain on the caregiver card.
+_BURNING = r"jala+n|jal\s*rah|jalna|acidity|जला?न|जल\s*रह"
+
 _SIDE_EFFECT = re.compile(
-    r"jalan|jal\s*rah|jalna|acidity|ulti|ultee|dard|takleef|takliif|pareshani|chakkar|matli|"
+    rf"{_BURNING}|ulti|ultee|dard|takleef|takliif|pareshani|chakkar|matli|"
     r"pet\s*(kharab|mein|me)|"
-    r"जलन|जल\s*रह|उल्टी|दर्द|तकलीफ|परेशानी|चक्कर|मतली|पेट",
+    r"उल्टी|दर्द|तकलीफ|परेशानी|चक्कर|मतली|पेट",
     re.IGNORECASE,
 )
 _DOUBLE_DOSE = re.compile(
@@ -50,7 +55,7 @@ _CLAUSE_SPLIT = re.compile(
 )
 
 _SYMPTOM_MAP: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"jalan|jal\s*rah|jalna|acidity|जलन|जल\s*रह", re.IGNORECASE), "abdominal_burning"),
+    (re.compile(_BURNING, re.IGNORECASE), "abdominal_burning"),
     (re.compile(r"ulti|ultee|उल्टी", re.IGNORECASE), "vomiting"),
     (re.compile(r"matli|मतली|nausea", re.IGNORECASE), "nausea"),
     (re.compile(r"chakkar|चक्कर", re.IGNORECASE), "dizziness"),
@@ -126,6 +131,11 @@ def classify(text: str) -> Classification:
     if not settings.llm_classify_enabled or not text.strip() or not settings.configured:
         return result
 
+    # Regex already resolved adherence and named the symptom — there is nothing left for the
+    # model to add, so skip a measured ~3.4s round-trip. This is the judged demo turn.
+    if result.adherence != "unclear" and result.normalized_symptom:
+        return result
+
     try:
         llm = classify_json(prompts.CLASSIFIER_SYSTEM, text, prompts.CLASSIFIER_SCHEMA)
     except (SarvamError, KeyError, IndexError) as exc:
@@ -148,8 +158,11 @@ def classify(text: str) -> Classification:
     # A refusal flag can be raised by either layer, never cleared by the model.
     result.double_dose_request = result.double_dose_request or bool(llm.get("double_dose_request"))
 
+    # Only adopt the model's confidence when it graded the adherence value we actually kept.
+    # It reports confidence in its own judgement — if it said "unclear" while regex said "taken",
+    # its 0.0 says nothing about the value in hand.
     llm_confidence = llm.get("confidence")
-    if isinstance(llm_confidence, (int, float)) and result.adherence != "unclear":
+    if isinstance(llm_confidence, (int, float)) and llm.get("adherence") == result.adherence:
         result.confidence = max(0.5, min(1.0, float(llm_confidence)))
 
     return result

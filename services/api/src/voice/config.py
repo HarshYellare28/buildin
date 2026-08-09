@@ -41,10 +41,14 @@ def load_settings() -> Settings:
         stt_model=os.getenv("SARVAM_STT_MODEL", "saaras:v3"),
         tts_model=os.getenv("SARVAM_TTS_MODEL", "bulbul:v3"),
         tts_speaker=os.getenv("SARVAM_TTS_SPEAKER", "ritu"),
-        llm_model=os.getenv("SARVAM_LLM_MODEL", "sarvam-105b"),
+        # sarvam-105b is a reasoning model: measured 9.9s and ~1200 reasoning tokens for this
+        # classification. The conversations variant does the same job in ~3.4s / 62 tokens.
+        llm_model=os.getenv("SARVAM_LLM_MODEL", "sarvam-105b-conversations"),
         patient_lang=os.getenv("DEMO_PATIENT_LANG", "hi-IN"),
         caregiver_lang=os.getenv("DEMO_CAREGIVER_LANG", "en-IN"),
-        dawa_api_url=os.getenv("DAWA_API_URL", "http://localhost:8000").rstrip("/"),
+        # 127.0.0.1, not localhost: the connect timeout applies per address family, so "localhost"
+        # costs a wasted IPv6 attempt before falling back to IPv4 when the backend is down.
+        dawa_api_url=os.getenv("DAWA_API_URL", "http://127.0.0.1:8000").rstrip("/"),
         speech_timeout=float(os.getenv("VOICE_SPEECH_TIMEOUT", "20")),
         llm_timeout=float(os.getenv("VOICE_LLM_TIMEOUT", "8")),
         llm_classify_enabled=_flag("VOICE_LLM_CLASSIFY", True),

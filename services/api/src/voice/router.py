@@ -9,6 +9,8 @@ Everything lives under /voice/* so it cannot collide with the routes in docs/API
 """
 
 import base64
+import time
+from contextlib import contextmanager
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -35,6 +37,17 @@ class StartSessionRequest(BaseModel):
 class TurnTextRequest(BaseModel):
     user_text: str
     speak: bool = True
+
+
+@contextmanager
+def _timed(timings: dict, stage: str):
+    """Per-stage timing, returned on every turn. Latency is a stated lose condition for the demo,
+    so the number has to be visible during rehearsal, not guessed at."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        timings[stage] = round((time.perf_counter() - start) * 1000)
 
 
 def _speak(text: str, enabled: bool = True) -> tuple[str | None, str | None]:
@@ -132,21 +145,26 @@ def start_session(body: StartSessionRequest) -> dict:
 @router.post("/sessions/{session_id}/turn")
 def voice_turn(session_id: str, audio: UploadFile = File(...)) -> dict:
     sess = _require(session_id)
+    timings: dict[str, int] = {}
     raw = audio.file.read()
     if not raw:
         raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_AUDIO"}})
 
     try:
-        heard = transcribe(
-            raw,
-            filename=audio.filename or "turn.webm",
-            content_type=audio.content_type or "audio/webm",
-        )
+        with _timed(timings, "stt"):
+            heard = transcribe(
+                raw,
+                filename=audio.filename or "turn.webm",
+                content_type=audio.content_type or "audio/webm",
+            )
     except SarvamError as exc:
         raise HTTPException(status_code=502, detail={"error": {"code": "STT_FAILED", "message": str(exc)}})
 
-    reply = _turn(sess, heard.text)
-    audio_b64, tts_error = _speak(reply.text)
+    with _timed(timings, "dialogue"):
+        reply = _turn(sess, heard.text)
+    with _timed(timings, "tts"):
+        audio_b64, tts_error = _speak(reply.text)
+    timings["total"] = sum(v for k, v in timings.items() if k != "total")
     return _view(
         sess,
         assistant_text=reply.text,
@@ -154,6 +172,7 @@ def voice_turn(session_id: str, audio: UploadFile = File(...)) -> dict:
         tts_error=tts_error,
         transcript=heard.text,
         stt_language=heard.language_code,
+        timings_ms=timings,
     )
 
 

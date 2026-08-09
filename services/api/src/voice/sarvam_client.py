@@ -44,13 +44,17 @@ def _require_key() -> None:
         raise SarvamError("SARVAM_API_KEY is not set — copy .env.example to .env and fill it in.")
 
 
+# One pooled client for the process: a live dose call makes several requests to the same host, and
+# a fresh TLS handshake per request is latency the patient hears as silence.
+_client = httpx.Client(timeout=settings.speech_timeout)
+
+
 def _post(url: str, *, timeout: float, retries: int = 1, **kwargs) -> httpx.Response:
     """POST with one retry on timeout / 5xx. 4xx is not retried — it will not fix itself."""
     last: Exception | None = None
     for attempt in range(retries + 1):
         try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(url, **kwargs)
+            response = _client.post(url, timeout=timeout, **kwargs)
             if response.status_code < 400:
                 return response
             if response.status_code < 500:
@@ -111,7 +115,10 @@ def classify_json(system_prompt: str, user_text: str, schema: dict) -> dict:
         json={
             "model": settings.llm_model,
             "temperature": 0,
-            "max_tokens": 300,
+            # Sarvam's models emit reasoning_content before content. Too small a budget burns the
+            # whole allowance on reasoning and returns content: null with finish_reason "length".
+            "max_tokens": 1500,
+            "reasoning_effort": "low",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_text},
@@ -122,8 +129,14 @@ def classify_json(system_prompt: str, user_text: str, schema: dict) -> dict:
             },
         },
     )
-    content = response.json()["choices"][0]["message"]["content"]
+    choice = response.json()["choices"][0]
+    content = choice["message"].get("content")
+    if not content:
+        raise SarvamError(
+            f"classifier returned empty content (finish_reason={choice.get('finish_reason')}) "
+            "— raise max_tokens if this is 'length'"
+        )
     try:
         return json.loads(content)
-    except (TypeError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError as exc:
         raise SarvamError(f"classifier returned non-JSON: {str(content)[:200]}") from exc
