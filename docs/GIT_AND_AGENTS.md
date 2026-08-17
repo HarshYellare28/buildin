@@ -13,7 +13,7 @@ Merge often or die in integration hell.
 | `main` | Arnav (gate) | Always the demo candidate after first green E2E |
 | `feat/api` | Barkha | `services/api/**` except pure voice experiments |
 | `feat/voice` | Jyotir | `services/api/src/voice/**` + voice UI hooks agreed with Harsh |
-| `feat/web` | Harsh | `apps/web/**` |
+| `feat/web` | Harsh | `cockpit/**` |
 | `feat/fixtures-demo` | Arnav | `docs/`, `fixtures/`, `scripts/`, team playbooks |
 
 ### Rules

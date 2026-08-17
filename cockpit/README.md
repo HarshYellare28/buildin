@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DAWA caregiver cockpit
 
-## Getting Started
+This is the only product UI. The patient never opens a web page; the patient
+interaction belongs to the phone voice agent.
 
-First, run the development server:
+## Run
 
 ```bash
+cp .env.example .env.local
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>. Run the FastAPI service on port 8000 first.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The production path is:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```text
+extract -> confirm/activate -> Sarvam Instant Outbound -> patient phone
+        -> authenticated webhook -> caregiver packet + backend ledger
+```
 
-## Learn More
+`NEXT_PUBLIC_DEV_MODE=1` exposes a clearly labelled disaster fallback. It runs
+the fixed demo utterance through the real voice classifier and completion API;
+it is not the judged phone-call path.
 
-To learn more about Next.js, take a look at the following resources:
+## Important boundary
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+With `NEXT_PUBLIC_DEV_MODE=0`, `Call Lakshmi` creates a dose and asks the DAWA
+API to place the configured Sarvam Instant Outbound call. The patient still has
+no web microphone or patient UI. The typed voice session exists only as the
+explicitly labelled disaster fallback.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The caregiver chooses any active-plan medication and can call immediately;
+this is not restricted to the medication's scheduled time. After Sarvam posts
+the completion webhook, **Check outcome & transcript** loads the complete set
+of transcript lines delivered by Sarvam alongside the packet and ledger.

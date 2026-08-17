@@ -1,9 +1,8 @@
 """Thin wrappers over the three Sarvam endpoints the dose call needs.
 
-Endpoints verified against docs.sarvam.ai:
-  POST /speech-to-text        multipart, header api-subscription-key -> {"transcript": ...}
-  POST /text-to-speech        json                                   -> {"audios": ["<base64>"]}
-  POST /v1/chat/completions   json, Authorization: Bearer            -> OpenAI-shaped
+This client preserves Jyotir's strict voice-session contract: transcription
+metadata, template-only TTS, and JSON-schema classification. The extraction
+path uses ``services.sarvam`` separately because its chat response is free-form.
 """
 
 import base64
@@ -44,13 +43,12 @@ def _require_key() -> None:
         raise SarvamError("SARVAM_API_KEY is not set — copy .env.example to .env and fill it in.")
 
 
-# One pooled client for the process: a live dose call makes several requests to the same host, and
-# a fresh TLS handshake per request is latency the patient hears as silence.
+# Pool connections because TLS setup is latency the patient hears as silence.
 _client = httpx.Client(timeout=settings.speech_timeout)
 
 
 def _post(url: str, *, timeout: float, retries: int = 1, **kwargs) -> httpx.Response:
-    """POST with one retry on timeout / 5xx. 4xx is not retried — it will not fix itself."""
+    """POST with one retry on timeout / 5xx. 4xx is never retried."""
     last: Exception | None = None
     for attempt in range(retries + 1):
         try:
@@ -67,7 +65,11 @@ def _post(url: str, *, timeout: float, retries: int = 1, **kwargs) -> httpx.Resp
     raise last if last else SarvamError(f"{url} failed")
 
 
-def transcribe(audio: bytes, filename: str = "turn.webm", content_type: str = "audio/webm") -> Transcript:
+def transcribe(
+    audio: bytes,
+    filename: str = "turn.webm",
+    content_type: str = "audio/webm",
+) -> Transcript:
     _require_key()
     response = _post(
         f"{settings.api_base}/speech-to-text",
@@ -85,7 +87,7 @@ def transcribe(audio: bytes, filename: str = "turn.webm", content_type: str = "a
 
 
 def synthesize(text: str, language_code: str | None = None) -> bytes:
-    """Return WAV bytes for `text`. Every caller passes a template, never model output."""
+    """Return WAV bytes. Callers only pass policy-bound templates."""
     _require_key()
     response = _post(
         f"{settings.api_base}/text-to-speech",
@@ -93,7 +95,7 @@ def synthesize(text: str, language_code: str | None = None) -> bytes:
         headers={**_speech_headers(), "Content-Type": "application/json"},
         json={
             "text": text,
-            "language_code": language_code or settings.patient_lang,
+            "target_language_code": language_code or settings.patient_lang,
             "model": settings.tts_model,
             "speaker": settings.tts_speaker,
         },
@@ -105,7 +107,7 @@ def synthesize(text: str, language_code: str | None = None) -> bytes:
 
 
 def classify_json(system_prompt: str, user_text: str, schema: dict) -> dict:
-    """Structured classification. Raises SarvamError so classify.py can fall back to regex."""
+    """Structured classification. Raises so classify.py can fall back to regex."""
     _require_key()
     response = _post(
         f"{settings.api_base}/v1/chat/completions",
@@ -115,8 +117,6 @@ def classify_json(system_prompt: str, user_text: str, schema: dict) -> dict:
         json={
             "model": settings.llm_model,
             "temperature": 0,
-            # Sarvam's models emit reasoning_content before content. Too small a budget burns the
-            # whole allowance on reasoning and returns content: null with finish_reason "length".
             "max_tokens": 1500,
             "reasoning_effort": "low",
             "messages": [
@@ -133,8 +133,7 @@ def classify_json(system_prompt: str, user_text: str, schema: dict) -> dict:
     content = choice["message"].get("content")
     if not content:
         raise SarvamError(
-            f"classifier returned empty content (finish_reason={choice.get('finish_reason')}) "
-            "— raise max_tokens if this is 'length'"
+            f"classifier returned empty content (finish_reason={choice.get('finish_reason')})"
         )
     try:
         return json.loads(content)

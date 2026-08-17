@@ -22,7 +22,7 @@ Read this file, then your personal playbook in `team/`.
 | **Arnav** | Product, demo, fixtures, merge gate, agent script | `docs/`, `fixtures/`, `scripts/`, `team/` | [team/Arnav.md](team/Arnav.md) |
 | **Barkha** | Backend, med graph, policy, **call webhook** | `services/api/` | [team/Barkha.md](team/Barkha.md) |
 | **Jyotir** | **Sarvam calling agent** (patient voice only) | agent config + call trigger glue | [team/Jyotir.md](team/Jyotir.md) |
-| **Harsh** | **Caregiver cockpit only** (no patient screens) | `apps/web/` | [team/Harsh.md](team/Harsh.md) |
+| **Harsh** | **Caregiver cockpit only** (no patient screens) | `cockpit/` | [team/Harsh.md](team/Harsh.md) |
 
 Shared contracts (everyone reads, nobody freelances):
 
@@ -50,8 +50,8 @@ buildin/                      # git repository root
 ├── team/                     # personal playbooks
 ├── fixtures/                 # discharge text, formulary, sample packet
 ├── scripts/                  # seed + demo-reset
-├── apps/
-│   └── web/                  # Next.js cockpit (Harsh)
+├── cockpit/                  # Next.js caregiver cockpit (Harsh)
+├── apps/web/                 # deprecated pointer; no patient app
 ├── services/
 │   └── api/                  # FastAPI backend (Barkha + Jyotir voice)
 └── packages/shared/          # optional shared schemas later
@@ -85,8 +85,8 @@ Everything else is stretch or noise.
 # terminal 1 — API (Barkha)
 cd services/api && make dev   # or: uvicorn ...
 
-# terminal 2 — Web (Harsh)
-cd apps/web && npm run dev
+# terminal 2 — caregiver cockpit (Harsh)
+cd cockpit && npm ci && npm run dev
 
 # reset world state before every rehearsal
 ./scripts/demo-reset.sh

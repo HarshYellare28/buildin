@@ -24,7 +24,7 @@ services/api/src/voice/**
 ## You may edit with agreement
 
 ```text
-apps/web/**          # only voice panel / mic button / session UI (coordinate Harsh)
+cockpit/**           # caregiver call status only; never add a patient mic UI
 services/api/src/routes/doses.py   # only if adding voice-turn route with Barkha
 ```
 
@@ -171,7 +171,7 @@ Build a reliable live dose-time voice loop in Hindi using Sarvam STT/TTS, then w
 
 OWNED PATHS
 - services/api/src/voice/**
-- Optional voice UI only with Harsh coordination under apps/web (mic/session components only)
+- Caregiver call status only under `cockpit/`; the patient never gets a web mic/session UI
 
 READ FIRST
 - docs/DEMO_SCRIPT.md

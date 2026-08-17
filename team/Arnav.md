@@ -31,7 +31,7 @@ README.md
 ## You may touch with a shout
 
 ```text
-apps/web/**          # copy, empty states, demo labels only
+cockpit/**           # copy, empty states, demo labels only
 services/api/**      # seed data paths, demo reset behavior only
 ```
 

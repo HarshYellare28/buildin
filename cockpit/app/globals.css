@@ -67,13 +67,15 @@ html {
 }
 
 html, body {
+  width: 100%;
   max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--color-neutral-200);
+  background: #ddd8ce;
   color: var(--color-text);
   font-family: var(--font-body);
   font-size: 15px;
@@ -112,6 +114,339 @@ input[type="checkbox"] {
   accent-color: var(--color-accent-700);
   width: 18px;
   height: 18px;
+}
+
+/* — caregiver cockpit — */
+.cockpit-frame {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  font-family: var(--font-body);
+}
+
+.cockpit-shell {
+  width: 100%;
+  max-width: 430px;
+  height: 100vh;
+  height: 100dvh;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(249, 246, 239, 0.91) 0%, rgba(246, 241, 232, 0.93) 45%, rgba(239, 233, 222, 0.96) 100%),
+    url("/dawa-care-bg.jpg") 63% center / cover no-repeat;
+  box-shadow: 0 18px 56px rgba(47, 38, 27, 0.2);
+}
+
+.cockpit-header,
+.cockpit-nav {
+  position: sticky;
+  z-index: 5;
+  background: rgba(250, 247, 240, 0.9);
+  border-color: rgba(75, 57, 36, 0.16);
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.cockpit-header {
+  top: 0;
+  flex: 0 0 auto;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(75, 57, 36, 0.16);
+}
+
+.cockpit-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+}
+
+.cockpit-nav {
+  bottom: 0;
+  flex: 0 0 auto;
+  display: flex;
+  width: 100%;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid rgba(75, 57, 36, 0.16);
+}
+
+.cockpit-nav button {
+  min-width: 0;
+}
+
+.cockpit-shell .card,
+.cockpit-shell .input,
+.cockpit-shell .seg {
+  background: rgba(255, 253, 248, 0.84);
+  border-color: rgba(86, 65, 39, 0.2);
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+}
+
+.cockpit-shell .card {
+  box-shadow: 0 8px 28px rgba(64, 45, 27, 0.1);
+}
+
+.cockpit-shell .card,
+.cockpit-shell .field,
+.cockpit-shell .card-title,
+.cockpit-shell .card-body,
+.cockpit-shell .note {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.call-transcript {
+  display: grid;
+  gap: 8px;
+}
+
+.transcript-line {
+  padding: 9px 11px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 253, 248, 0.72);
+  border: 1px solid rgba(86, 65, 39, 0.14);
+}
+
+.transcript-line.patient {
+  margin-left: 24px;
+  background: rgba(255, 239, 216, 0.8);
+}
+
+.transcript-line span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--color-accent-700);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.transcript-line p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.meal-card {
+  border-color: rgba(153, 105, 38, 0.3) !important;
+  background:
+    linear-gradient(145deg, rgba(255, 252, 245, 0.94), rgba(250, 241, 225, 0.88)) !important;
+}
+
+.meal-result {
+  display: grid;
+  gap: 12px;
+}
+
+.meal-score-row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.meal-score-ring {
+  --meal-band-color: var(--color-accent-600);
+  position: relative;
+  width: 78px;
+  height: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  isolation: isolate;
+  background: conic-gradient(
+    var(--meal-band-color) var(--meal-score),
+    rgba(88, 71, 49, 0.13) 0
+  );
+}
+
+.meal-score-ring::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: -1;
+  border-radius: 50%;
+  background: #fffaf1;
+  box-shadow: inset 0 0 0 1px rgba(89, 65, 34, 0.08);
+}
+
+.meal-score-ring.strong { --meal-band-color: #64805a; }
+.meal-score-ring.fair { --meal-band-color: #bd8734; }
+.meal-score-ring.needs_attention { --meal-band-color: #b45837; }
+
+.meal-score-ring strong {
+  font-family: var(--font-heading);
+  font-size: 25px;
+  line-height: 0.95;
+}
+
+.meal-score-ring span {
+  margin-top: 3px;
+  font-size: 9px;
+  opacity: 0.56;
+}
+
+.meal-band.strong { background: #e9f0e4; color: #3f6538; }
+.meal-band.fair { background: #fff0d7; color: #79500f; }
+.meal-band.needs_attention { background: #fbe4dc; color: #853b23; }
+
+.meal-quote {
+  padding: 10px 12px;
+  border-left: 3px solid rgba(182, 130, 53, 0.58);
+  background: rgba(255, 255, 255, 0.48);
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.meal-section {
+  display: grid;
+  gap: 8px;
+}
+
+.meal-timing {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(89, 65, 34, 0.11);
+}
+
+.meal-timing strong {
+  display: block;
+  font-size: 12px;
+}
+
+.meal-timing p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0.67;
+}
+
+.meal-status-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--color-neutral-400);
+}
+
+.meal-status-dot.matched { background: #64805a; }
+.meal-status-dot.needs_confirmation { background: #b45837; }
+
+.meal-signal-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.meal-signal-list span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(100, 128, 90, 0.12);
+  color: #476441;
+  font-size: 10px;
+}
+
+.meal-suggestions {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.meal-suggestions li + li {
+  margin-top: 5px;
+}
+
+.meal-disclaimer {
+  margin: 2px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid rgba(89, 65, 34, 0.11);
+  font-size: 10px;
+  line-height: 1.45;
+  opacity: 0.58;
+}
+
+@media (min-width: 700px) {
+  .cockpit-frame {
+    padding: 24px 0;
+  }
+
+  .cockpit-shell {
+    height: calc(100vh - 48px);
+    height: calc(100dvh - 48px);
+    border-radius: 22px;
+  }
+}
+
+@media (max-width: 430px) {
+  .cockpit-header {
+    padding: 12px 14px 10px;
+  }
+
+  .cockpit-main {
+    padding: 14px 14px 18px;
+  }
+
+  .cockpit-nav button {
+    padding: 7px 0 8px !important;
+  }
+
+  .seg {
+    display: flex;
+    width: 100%;
+  }
+
+  .seg-opt {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 6px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .transcript-line.patient {
+    margin-left: 12px;
+  }
+
+  .meal-score-row {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 11px;
+  }
+
+  .meal-score-ring {
+    width: 68px;
+    height: 68px;
+  }
+
+  .meal-score-ring strong {
+    font-size: 22px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .cockpit-header,
+  .cockpit-nav,
+  .cockpit-shell .card,
+  .cockpit-shell .input,
+  .cockpit-shell .seg {
+    background: rgba(250, 247, 240, 0.94);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 /* — rules — */
@@ -163,6 +498,8 @@ input[type="checkbox"] {
 }
 .input {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 36px;
   padding: 6px 10px;
   font: inherit;

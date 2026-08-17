@@ -28,7 +28,7 @@ Prefer: you own routes/models/policy/services; Jyotir owns voice dialogue module
 ## You do not own
 
 ```text
-apps/web/**
+cockpit/**
 docs/**            # propose changes; Arnav merges contract edits
 fixtures/**        # consume; ask Arnav to change shapes
 ```
